@@ -34,7 +34,9 @@ async fn invalid_message_reply(msg: &Message, context: &Context, mparts: &Vec<&s
 
 async fn determine_mention(msg: &Message, context: &Context) -> Option<String> {
     if let Some(user) = msg.mentions.first() {
-        user.nick_in(context, msg.guild_id?).await
+        user.nick_in(context, msg.guild_id?)
+            .await
+            .or(Some(user.name.clone()))
     } else if let Some(role_id) = msg.mention_roles.first() {
         let role = msg
             .guild(context.cache.clone())?
