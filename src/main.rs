@@ -3,7 +3,7 @@ use std::env;
 
 use serenity::{
     async_trait,
-    model::prelude::{Channel, Message},
+    model::prelude::Message,
     prelude::{Context, EventHandler, GatewayIntents},
     utils::MessageBuilder,
     Client,
@@ -142,76 +142,22 @@ impl EventHandler for Handler {
                 }
             };
 
-            let channel = match msg.channel(&context).await {
-                Ok(ch) => ch,
-                Err(e) => {
-                    eprintln!("error getting channel: {:?}", e);
-                    return;
-                }
-            };
-            if let Err(e) = msg.delete(&context).await {
-                eprintln!("could not replace original message: {:?}", e);
-                return;
-            }
-
-            if let Err(e) = match channel {
-                Channel::Guild(c) => {
-                    c.send_message(&context, |builder| {
-                        let mut msg_builder = MessageBuilder::new();
-                        condition_texts.for_each_texts(&answers, |text| {
-                            match text {
-                                Text::Dynamic(d) => match d {
-                                    DynamicText::NpcOriginName
-                                    | DynamicText::PlayerOriginNameEn
-                                    | DynamicText::PlayerOriginNameJp => {
-                                        msg_builder.mention(&msg.author)
-                                    }
-                                    // fixme
-                                    DynamicText::NpcTargetName
-                                    | DynamicText::PlayerTargetNameEn
-                                    | DynamicText::PlayerTargetNameJp => {
-                                        msg_builder.mention(&msg.author)
-                                    }
-                                },
-                                Text::Static(s) => msg_builder.push(s),
-                            };
-                        });
-                        builder.content(msg_builder.build());
-                        builder
-                    })
-                    .await
-                }
-                Channel::Private(c) => {
-                    c.send_message(&context, |builder| {
-                        let mut msg_builder = MessageBuilder::new();
-                        condition_texts.for_each_texts(&answers, |text| {
-                            match text {
-                                Text::Dynamic(d) => match d {
-                                    DynamicText::NpcOriginName
-                                    | DynamicText::PlayerOriginNameEn
-                                    | DynamicText::PlayerOriginNameJp => {
-                                        msg_builder.mention(&msg.author)
-                                    }
-                                    // fixme
-                                    DynamicText::NpcTargetName
-                                    | DynamicText::PlayerTargetNameEn
-                                    | DynamicText::PlayerTargetNameJp => {
-                                        msg_builder.mention(&msg.author)
-                                    }
-                                },
-                                Text::Static(s) => msg_builder.push(s),
-                            };
-                        });
-                        builder.content(msg_builder.build());
-                        builder
-                    })
-                    .await
-                }
-                _ => {
-                    eprintln!("supported type of channel: {:?}", channel);
-                    return;
-                }
-            } {
+            let mut msg_builder = MessageBuilder::new();
+            condition_texts.for_each_texts(&answers, |text| {
+                match text {
+                    Text::Dynamic(d) => match d {
+                        DynamicText::NpcOriginName
+                        | DynamicText::PlayerOriginNameEn
+                        | DynamicText::PlayerOriginNameJp => msg_builder.mention(&msg.author),
+                        // fixme
+                        DynamicText::NpcTargetName
+                        | DynamicText::PlayerTargetNameEn
+                        | DynamicText::PlayerTargetNameJp => msg_builder.mention(&msg.author),
+                    },
+                    Text::Static(s) => msg_builder.push(s),
+                };
+            });
+            if let Err(e) = msg.reply(&context, msg_builder.build()).await {
                 eprintln!("failed to send emote message: {:?}", e);
                 return;
             }
