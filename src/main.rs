@@ -55,10 +55,8 @@ impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
         if msg.content.starts_with('!') {
             let mparts: Vec<_> = msg.content[1..].split_whitespace().collect();
-            let (condition_texts, answers) = match &mparts[..] {
-                [emote, mention]
-                    if self.log_message_repo.contains_emote(emote) && mention.starts_with('@') =>
-                {
+            let (condition_texts, answers, target_name) = match &mparts[..] {
+                [emote, mention] if self.log_message_repo.contains_emote(emote) => {
                     let messages = match self.log_message_repo.messages(emote) {
                         Ok(m) => m,
                         Err(e) => {
@@ -77,12 +75,10 @@ impl EventHandler for Handler {
                     );
                     let target_name = match determine_mention(&msg, &context).await {
                         Some(n) => n,
-                        None => {
-                            eprintln!("error determining mention for {:?}", mparts);
-                            return;
-                        }
+                        None => mention.to_string(),
                     };
-                    let target = Character::new_from_string(target_name, Gender::Male, true, false);
+                    let target =
+                        Character::new_from_string(target_name.clone(), Gender::Male, true, false);
                     let answers = match LogMessageAnswers::new(origin, target) {
                         Ok(a) => a,
                         Err(e) => {
@@ -97,7 +93,7 @@ impl EventHandler for Handler {
                             return;
                         }
                     };
-                    (condition_texts, answers)
+                    (condition_texts, answers, target_name)
                 }
                 [emote] if self.log_message_repo.contains_emote(emote) => {
                     let messages = match self.log_message_repo.messages(emote) {
@@ -130,7 +126,15 @@ impl EventHandler for Handler {
                             return;
                         }
                     };
-                    (condition_texts, answers)
+                    (
+                        condition_texts,
+                        answers,
+                        UNTARGETED_TARGET.name.into_owned(),
+                    )
+                }
+                [_, _] => {
+                    invalid_message_reply(&msg, &context, &mparts, "unrecognized emote").await;
+                    return;
                 }
                 [_] => {
                     invalid_message_reply(&msg, &context, &mparts, "unrecognized emote").await;
@@ -149,10 +153,9 @@ impl EventHandler for Handler {
                         DynamicText::NpcOriginName
                         | DynamicText::PlayerOriginNameEn
                         | DynamicText::PlayerOriginNameJp => msg_builder.mention(&msg.author),
-                        // fixme
                         DynamicText::NpcTargetName
                         | DynamicText::PlayerTargetNameEn
-                        | DynamicText::PlayerTargetNameJp => msg_builder.mention(&msg.author),
+                        | DynamicText::PlayerTargetNameJp => msg_builder.push(&target_name),
                     },
                     Text::Static(s) => msg_builder.push(s),
                 };
