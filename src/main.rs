@@ -229,6 +229,10 @@ async fn main() {
     let log_message_repo = LogMessageRepository::from_xivapi(None)
         .await
         .expect("couldn't load log message data from xivapi");
+    println!(
+        "repo initialized with emotes: {:?}",
+        log_message_repo.emote_list().collect::<Vec<_>>()
+    );
     let mut client = Client::builder(&token, intents)
         .event_handler(Handler { log_message_repo })
         .await
