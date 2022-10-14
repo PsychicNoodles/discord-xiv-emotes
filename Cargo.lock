@@ -166,6 +166,7 @@ version = "0.1.0"
 dependencies = [
  "dotenv",
  "serenity",
+ "thiserror",
  "tokio",
  "xiv-emote-parser",
 ]
@@ -1629,7 +1630,7 @@ dependencies = [
 [[package]]
 name = "xiv-emote-parser"
 version = "0.1.0"
-source = "git+https://github.com/PsychicNoodles/xiv-emote-parser#e8b37e583a1f67be982bf6354e12d692cb2abf33"
+source = "git+https://github.com/PsychicNoodles/xiv-emote-parser#a098b85c768109d2e47117cd364eb7a76792fb5d"
 dependencies = [
  "pest",
  "pest_consume",
