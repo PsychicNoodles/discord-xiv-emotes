@@ -1725,7 +1725,7 @@ dependencies = [
 [[package]]
 name = "xiv-emote-parser"
 version = "0.1.0"
-source = "git+https://github.com/PsychicNoodles/xiv-emote-parser#264601b195f3246bd667a4b4ae138d0dda61a28f"
+source = "git+https://github.com/PsychicNoodles/xiv-emote-parser#44e24ccd9fd96dfde92dd9238ac901f1a3002236"
 dependencies = [
  "log",
  "pest",

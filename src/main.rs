@@ -53,7 +53,7 @@ async fn check_other_cmd(
     match mparts[..] {
         [_cmd] if _cmd == "emotes" => {
             trace!("emotes command");
-            let emote_list: Vec<_> = log_message_repo.emote_list().cloned().collect();
+            let emote_list: Vec<_> = log_message_repo.emote_list_by_id().cloned().collect();
             msg.reply(
                 context,
                 format!("List of emotes: {}", emote_list.join(", ")),
@@ -220,7 +220,7 @@ async fn main() {
         .expect("couldn't load log message data from xivapi");
     info!(
         "repo initialized with emotes: {:?}",
-        log_message_repo.emote_list().collect::<Vec<_>>()
+        log_message_repo.emote_list_by_id().collect::<Vec<_>>()
     );
     let mut client = Client::builder(&token, intents)
         .event_handler(Handler { log_message_repo })
