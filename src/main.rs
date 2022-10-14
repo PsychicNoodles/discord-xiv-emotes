@@ -39,6 +39,32 @@ enum HandlerError {
     Answers(#[from] LogMessageAnswersError),
     #[error("Internal error, could not build response")]
     Extract(#[from] EmoteTextError),
+    #[error("Failed to send message")]
+    Send(#[from] serenity::Error),
+}
+
+async fn check_other_cmd(
+    mparts: &[&str],
+    log_message_repo: &LogMessageRepository,
+    context: &Context,
+    msg: &Message,
+) -> Result<bool, HandlerError> {
+    match mparts[..] {
+        [_cmd] if _cmd == "emotes" => {
+            let emote_list: Vec<_> = log_message_repo.emote_list().cloned().collect();
+            msg.reply(
+                context,
+                format!("List of emotes: {}", emote_list.join(", ")),
+            )
+            .await?;
+            Ok(true)
+        }
+        [_cmd] if _cmd == "help" => {
+            msg.reply(context, format!("Use emotes from FFXIV in chat, optionally with a (mentionable) target! Use {}emotes for a list of options.", PREFIX)).await?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
 }
 
 async fn process_input(
@@ -46,13 +72,18 @@ async fn process_input(
     log_message_repo: &LogMessageRepository,
     context: &Context,
     msg: &Message,
-) -> Result<(ConditionTexts, LogMessageAnswers, String), HandlerError> {
-    let (emote, mention) = match mparts[..] {
+) -> Result<Option<(ConditionTexts, LogMessageAnswers, String)>, HandlerError> {
+    if check_other_cmd(mparts, log_message_repo, context, msg).await? {
+        return Ok(None);
+    }
+
+    let (cmd, mention) = match mparts[..] {
         [e, m] => Ok((["/", e].concat(), Some(m))),
         [e] => Ok((["/", e].concat(), None)),
         _ => Err(HandlerError::InvalidFormat(mparts.join(" "))),
     }?;
-    match (&emote, mention) {
+
+    match (&cmd, mention) {
         (emote, Some(mention)) if log_message_repo.contains_emote(emote) => {
             let messages = log_message_repo.messages(emote)?;
             // todo allow setting gender
@@ -71,7 +102,7 @@ async fn process_input(
             let target = Character::new_from_string(target_name.clone(), Gender::Male, true, false);
             let answers = LogMessageAnswers::new(origin, target)?;
             let condition_texts = extract_condition_texts(&messages.en.targeted)?;
-            Ok((condition_texts, answers, target_name))
+            Ok(Some((condition_texts, answers, target_name)))
         }
         (emote, None) if log_message_repo.contains_emote(emote) => {
             let messages = log_message_repo.messages(emote)?;
@@ -86,11 +117,11 @@ async fn process_input(
             );
             let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
             let condition_texts = extract_condition_texts(&messages.en.untargeted)?;
-            Ok((
+            Ok(Some((
                 condition_texts,
                 answers,
                 UNTARGETED_TARGET.name.into_owned(),
-            ))
+            )))
         }
         (emote, _) => Err(HandlerError::UnrecognizedEmote(emote.to_string())),
     }
@@ -121,7 +152,7 @@ impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
         if msg.content.starts_with(PREFIX) {
             let mparts: Vec<_> = msg.content[1..].split_whitespace().collect();
-            let (condition_texts, answers, target_name) =
+            if let Some((condition_texts, answers, target_name)) =
                 match process_input(&mparts, &self.log_message_repo, &context, &msg).await {
                     Ok(v) => v,
                     Err(err) => {
@@ -135,25 +166,26 @@ impl EventHandler for Handler {
                         }
                         return;
                     }
-                };
-
-            let mut msg_builder = MessageBuilder::new();
-            condition_texts.for_each_texts(&answers, |text| {
-                match text {
-                    Text::Dynamic(d) => match d {
-                        DynamicText::NpcOriginName
-                        | DynamicText::PlayerOriginNameEn
-                        | DynamicText::PlayerOriginNameJp => msg_builder.mention(&msg.author),
-                        DynamicText::NpcTargetName
-                        | DynamicText::PlayerTargetNameEn
-                        | DynamicText::PlayerTargetNameJp => msg_builder.push(&target_name),
-                    },
-                    Text::Static(s) => msg_builder.push(s),
-                };
-            });
-            if let Err(e) = msg.reply(&context, msg_builder.build()).await {
-                eprintln!("failed to send emote message: {:?}", e);
-                return;
+                }
+            {
+                let mut msg_builder = MessageBuilder::new();
+                condition_texts.for_each_texts(&answers, |text| {
+                    match text {
+                        Text::Dynamic(d) => match d {
+                            DynamicText::NpcOriginName
+                            | DynamicText::PlayerOriginNameEn
+                            | DynamicText::PlayerOriginNameJp => msg_builder.mention(&msg.author),
+                            DynamicText::NpcTargetName
+                            | DynamicText::PlayerTargetNameEn
+                            | DynamicText::PlayerTargetNameJp => msg_builder.push(&target_name),
+                        },
+                        Text::Static(s) => msg_builder.push(s),
+                    };
+                });
+                if let Err(e) = msg.reply(&context, msg_builder.build()).await {
+                    eprintln!("failed to send emote message: {:?}", e);
+                    return;
+                }
             }
         }
     }
