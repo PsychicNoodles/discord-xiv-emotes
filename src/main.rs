@@ -5,7 +5,10 @@ use thiserror::Error;
 
 use serenity::{
     async_trait,
-    model::prelude::Message,
+    model::{
+        prelude::{Message, Role},
+        user::User,
+    },
     prelude::{Context, EventHandler, GatewayIntents},
     utils::MessageBuilder,
     Client,
@@ -70,12 +73,28 @@ async fn check_other_cmd(
     }
 }
 
+enum Target {
+    User(User),
+    Role(Role),
+    Plain(String),
+}
+
+impl ToString for Target {
+    fn to_string(&self) -> String {
+        match self {
+            Target::User(u) => u.name.clone(),
+            Target::Role(r) => r.name.clone(),
+            Target::Plain(s) => s.to_string(),
+        }
+    }
+}
+
 async fn process_input(
     mparts: &[&str],
     log_message_repo: &LogMessageRepository,
     context: &Context,
     msg: &Message,
-) -> Result<Option<(ConditionTexts, LogMessageAnswers, String)>, HandlerError> {
+) -> Result<Option<(ConditionTexts, LogMessageAnswers, Target)>, HandlerError> {
     if check_other_cmd(mparts, log_message_repo, context, msg).await? {
         debug!("non-emote command");
         return Ok(None);
@@ -104,9 +123,10 @@ async fn process_input(
             trace!("message origin: {:?}", origin);
             let target_name = match determine_mention(&msg, &context).await {
                 Some(n) => n,
-                None => mention.to_string(),
+                None => Target::Plain(mention.to_string()),
             };
-            let target = Character::new_from_string(target_name.clone(), Gender::Male, true, false);
+            let target =
+                Character::new_from_string(target_name.to_string(), Gender::Male, true, false);
             trace!("message target: {:?}", target);
             let answers = LogMessageAnswers::new(origin, target)?;
             let condition_texts = extract_condition_texts(&messages.en.targeted)?;
@@ -130,31 +150,27 @@ async fn process_input(
             Ok(Some((
                 condition_texts,
                 answers,
-                UNTARGETED_TARGET.name.into_owned(),
+                Target::Plain(UNTARGETED_TARGET.name.into_owned()),
             )))
         }
         (emote, _) => Err(HandlerError::UnrecognizedEmote(emote.to_string())),
     }
 }
 
-async fn determine_mention(msg: &Message, context: &Context) -> Option<String> {
+async fn determine_mention(msg: &Message, context: &Context) -> Option<Target> {
     if let Some(user) = msg.mentions.first() {
         trace!("mention appears to be a user");
-        user.nick_in(context, msg.guild_id?)
-            .await
-            .or(Some(user.name.clone()))
+        Some(Target::User(user.clone()))
     } else if let Some(role_id) = msg.mention_roles.first() {
         trace!("mention appears to be a role");
-        let role = msg
-            .guild(context.cache.clone())?
+        msg.guild(context.cache.clone())?
             .roles
-            .get(role_id)?
-            .name
-            .clone();
-        Some(format!("every {} in sight", role))
+            .get(role_id)
+            .cloned()
+            .map(Target::Role)
     } else if msg.mention_everyone {
         trace!("mention appears to be everyone");
-        Some("everyone in the vicinity".to_string())
+        Some(Target::Plain("everyone in the vicinity".to_string()))
     } else {
         trace!("no mention found");
         None
@@ -193,7 +209,11 @@ impl EventHandler for Handler {
                             | DynamicText::PlayerOriginNameJp => msg_builder.mention(&msg.author),
                             DynamicText::NpcTargetName
                             | DynamicText::PlayerTargetNameEn
-                            | DynamicText::PlayerTargetNameJp => msg_builder.push(&target_name),
+                            | DynamicText::PlayerTargetNameJp => match &target_name {
+                                Target::User(u) => msg_builder.mention(u),
+                                Target::Role(r) => msg_builder.mention(r),
+                                Target::Plain(s) => msg_builder.push(s),
+                            },
                         },
                         Text::Static(s) => msg_builder.push(s),
                     };
