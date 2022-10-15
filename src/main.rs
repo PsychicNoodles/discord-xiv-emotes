@@ -1,12 +1,15 @@
+mod emote_select;
+
 use dotenv::dotenv;
+use emote_select::CHAT_INPUT_COMMAND_NAME;
 use log::*;
-use std::env;
+use std::{env, time::Duration};
 use thiserror::Error;
 
 use serenity::{
     async_trait,
     model::{
-        prelude::{Message, Role},
+        prelude::{command::Command, interaction::Interaction, Message, Ready, Role},
         user::User,
     },
     prelude::{Context, EventHandler, GatewayIntents},
@@ -15,7 +18,7 @@ use serenity::{
 };
 use xiv_emote_parser::{
     log_message::{
-        condition::{Character, DynamicText, Gender, LogMessageAnswersError},
+        condition::{Answers, Character, DynamicText, Gender, LogMessageAnswersError},
         parser::{extract_condition_texts, ConditionTexts, Text},
         EmoteTextError, LogMessageAnswers,
     },
@@ -30,11 +33,14 @@ struct Handler {
 const UNTARGETED_TARGET: Character =
     Character::new("Godbert Manderville", Gender::Male, false, false);
 const PREFIX: &'static str = "!";
+const INTERACTION_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Error)]
-enum HandlerError {
+pub enum HandlerError {
     #[error("Unrecognized emote ({0})")]
     UnrecognizedEmote(String),
+    #[error("Unrecognized command ({0})")]
+    UnrecognizedCommand(String),
     #[error("Invalid format ({0})")]
     InvalidFormat(String),
     #[error("Internal error, could not retrieve emote data")]
@@ -45,6 +51,12 @@ enum HandlerError {
     Extract(#[from] EmoteTextError),
     #[error("Failed to send message")]
     Send(#[from] serenity::Error),
+    #[error("Expected to be in a guild channel")]
+    NotGuild,
+    #[error("Timed out or had too many inputs")]
+    TimeoutOrOverLimit,
+    #[error("Couldn't find user")]
+    UserNotFound,
 }
 
 async fn check_other_cmd(
@@ -73,10 +85,17 @@ async fn check_other_cmd(
     }
 }
 
+#[derive(Debug, Clone)]
 enum Target {
     User(User),
     Role(Role),
     Plain(String),
+}
+
+impl Default for Target {
+    fn default() -> Self {
+        Target::Plain(UNTARGETED_TARGET.name.into_owned())
+    }
 }
 
 impl ToString for Target {
@@ -94,10 +113,10 @@ async fn process_input(
     log_message_repo: &LogMessageRepository,
     context: &Context,
     msg: &Message,
-) -> Result<Option<(ConditionTexts, LogMessageAnswers, Target)>, HandlerError> {
+) -> Result<(), HandlerError> {
     if check_other_cmd(mparts, log_message_repo, context, msg).await? {
         debug!("non-emote command");
-        return Ok(None);
+        return Ok(());
     }
 
     let (cmd, mention) = match mparts[..] {
@@ -130,7 +149,8 @@ async fn process_input(
             trace!("message target: {:?}", target);
             let answers = LogMessageAnswers::new(origin, target)?;
             let condition_texts = extract_condition_texts(&messages.en.targeted)?;
-            Ok(Some((condition_texts, answers, target_name)))
+            send_emote(condition_texts, answers, Some(target_name), &context, &msg).await;
+            Ok(())
         }
         (emote, None) if log_message_repo.contains_emote(emote) => {
             debug!("emote without mention");
@@ -147,11 +167,8 @@ async fn process_input(
             trace!("message origin: {:?}", origin);
             let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
             let condition_texts = extract_condition_texts(&messages.en.untargeted)?;
-            Ok(Some((
-                condition_texts,
-                answers,
-                Target::Plain(UNTARGETED_TARGET.name.into_owned()),
-            )))
+            send_emote(condition_texts, answers, None, &context, &msg).await;
+            Ok(())
         }
         (emote, _) => Err(HandlerError::UnrecognizedEmote(emote.to_string())),
     }
@@ -177,6 +194,38 @@ async fn determine_mention(msg: &Message, context: &Context) -> Option<Target> {
     }
 }
 
+async fn send_emote(
+    condition_texts: ConditionTexts,
+    answers: impl Answers,
+    target_name: Option<Target>,
+    context: &Context,
+    msg: &Message,
+) {
+    let target = target_name.unwrap_or_default();
+    let mut msg_builder = MessageBuilder::new();
+    condition_texts.for_each_texts(&answers, |text| {
+        match text {
+            Text::Dynamic(d) => match d {
+                DynamicText::NpcOriginName
+                | DynamicText::PlayerOriginNameEn
+                | DynamicText::PlayerOriginNameJp => msg_builder.mention(&msg.author),
+                DynamicText::NpcTargetName
+                | DynamicText::PlayerTargetNameEn
+                | DynamicText::PlayerTargetNameJp => match &target {
+                    Target::User(u) => msg_builder.mention(u),
+                    Target::Role(r) => msg_builder.mention(r),
+                    Target::Plain(s) => msg_builder.push(s),
+                },
+            },
+            Text::Static(s) => msg_builder.push(s),
+        };
+    });
+    if let Err(e) = msg.reply(&context, msg_builder.build()).await {
+        error!("failed to send emote message: {:?}", e);
+        return;
+    }
+}
+
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
@@ -184,45 +233,58 @@ impl EventHandler for Handler {
         if !msg.is_own(&context) && msg.content.starts_with(PREFIX) {
             let mparts: Vec<_> = msg.content[1..].split_whitespace().collect();
             debug!("message parts: {:?}", mparts);
-            if let Some((condition_texts, answers, target_name)) =
-                match process_input(&mparts, &self.log_message_repo, &context, &msg).await {
-                    Ok(v) => v,
-                    Err(err) => {
-                        error!("error during processing: {:?}", err);
-                        if let Err(e) = msg.reply(context, err.to_string()).await {
-                            error!(
-                                "could not send follow-up message ({}): {:?}",
-                                err.to_string(),
-                                e
-                            );
-                        }
-                        return;
+            match process_input(&mparts, &self.log_message_repo, &context, &msg).await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("error during message processing: {:?}", err);
+                    if let Err(e) = msg.reply(context, err.to_string()).await {
+                        error!(
+                            "could not send follow-up message ({}): {:?}",
+                            err.to_string(),
+                            e
+                        );
                     }
-                }
-            {
-                let mut msg_builder = MessageBuilder::new();
-                condition_texts.for_each_texts(&answers, |text| {
-                    match text {
-                        Text::Dynamic(d) => match d {
-                            DynamicText::NpcOriginName
-                            | DynamicText::PlayerOriginNameEn
-                            | DynamicText::PlayerOriginNameJp => msg_builder.mention(&msg.author),
-                            DynamicText::NpcTargetName
-                            | DynamicText::PlayerTargetNameEn
-                            | DynamicText::PlayerTargetNameJp => match &target_name {
-                                Target::User(u) => msg_builder.mention(u),
-                                Target::Role(r) => msg_builder.mention(r),
-                                Target::Plain(s) => msg_builder.push(s),
-                            },
-                        },
-                        Text::Static(s) => msg_builder.push(s),
-                    };
-                });
-                if let Err(e) = msg.reply(&context, msg_builder.build()).await {
-                    error!("failed to send emote message: {:?}", e);
                     return;
                 }
             }
+        }
+    }
+
+    async fn interaction_create(&self, context: Context, interaction: Interaction) {
+        if let Interaction::ApplicationCommand(cmd) = interaction {
+            trace!("incoming application command: {:?}", cmd);
+
+            if let Err(err) = match cmd.data.name.as_str() {
+                CHAT_INPUT_COMMAND_NAME => {
+                    emote_select::handle_chat_input(&cmd, &self.log_message_repo, &context).await
+                }
+                s => Err(HandlerError::UnrecognizedCommand(s.to_string())),
+            } {
+                error!("error during interaction processing: {:?}", err);
+                if let Err(e) = cmd
+                    .create_followup_message(&context, |msg| msg.content(err.to_string()))
+                    .await
+                {
+                    error!(
+                        "could not send follow-up message ({}): {:?}",
+                        err.to_string(),
+                        e
+                    );
+                }
+                return;
+            }
+        }
+    }
+
+    async fn ready(&self, context: Context, ready: Ready) {
+        info!("{} is connected", ready.user.name);
+
+        if let Err(err) = Command::set_global_application_commands(&context, |cmds| {
+            cmds.create_application_command(emote_select::register_chat_input)
+        })
+        .await
+        {
+            error!("error during setup: {:?}", err);
         }
     }
 }
