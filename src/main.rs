@@ -108,6 +108,16 @@ impl ToString for Target {
     }
 }
 
+impl Target {
+    fn to_value(&self) -> String {
+        match self {
+            Target::User(u) => u.id.to_string(),
+            Target::Role(r) => r.id.to_string(),
+            Target::Plain(s) => s.to_string(),
+        }
+    }
+}
+
 async fn process_input(
     mparts: &[&str],
     log_message_repo: &LogMessageRepository,
