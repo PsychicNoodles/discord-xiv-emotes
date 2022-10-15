@@ -9,7 +9,7 @@ use thiserror::Error;
 use serenity::{
     async_trait,
     model::{
-        prelude::{command::Command, interaction::Interaction, Message, Ready, Role},
+        prelude::{command::Command, interaction::Interaction, ChannelId, Message, Ready, Role},
         user::User,
     },
     prelude::{Context, EventHandler, GatewayIntents},
@@ -57,6 +57,8 @@ pub enum HandlerError {
     TimeoutOrOverLimit,
     #[error("Couldn't find user")]
     UserNotFound,
+    #[error("Unexpected data received from server")]
+    UnexpectedData,
 }
 
 async fn check_other_cmd(
@@ -159,7 +161,14 @@ async fn process_input(
             trace!("message target: {:?}", target);
             let answers = LogMessageAnswers::new(origin, target)?;
             let condition_texts = extract_condition_texts(&messages.en.targeted)?;
-            send_emote(condition_texts, answers, Some(target_name), &context, &msg).await;
+            send_emote(
+                condition_texts,
+                answers,
+                Some(target_name),
+                &context,
+                SendTargetType::Message(&msg),
+            )
+            .await;
             Ok(())
         }
         (emote, None) if log_message_repo.contains_emote(emote) => {
@@ -177,7 +186,14 @@ async fn process_input(
             trace!("message origin: {:?}", origin);
             let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
             let condition_texts = extract_condition_texts(&messages.en.untargeted)?;
-            send_emote(condition_texts, answers, None, &context, &msg).await;
+            send_emote(
+                condition_texts,
+                answers,
+                None,
+                &context,
+                SendTargetType::Message(&msg),
+            )
+            .await;
             Ok(())
         }
         (emote, _) => Err(HandlerError::UnrecognizedEmote(emote.to_string())),
@@ -204,21 +220,34 @@ async fn determine_mention(msg: &Message, context: &Context) -> Option<Target> {
     }
 }
 
-async fn send_emote(
+#[derive(Debug, Clone, Copy)]
+enum SendTargetType<'a> {
+    Message(&'a Message),
+    Channel {
+        channel: &'a ChannelId,
+        author: &'a User,
+    },
+}
+
+async fn send_emote<'a>(
     condition_texts: ConditionTexts,
     answers: impl Answers,
     target_name: Option<Target>,
     context: &Context,
-    msg: &Message,
+    target_type: SendTargetType<'a>,
 ) {
     let target = target_name.unwrap_or_default();
     let mut msg_builder = MessageBuilder::new();
+    let author = match target_type {
+        SendTargetType::Message(m) => &m.author,
+        SendTargetType::Channel { author, .. } => author,
+    };
     condition_texts.for_each_texts(&answers, |text| {
         match text {
             Text::Dynamic(d) => match d {
                 DynamicText::NpcOriginName
                 | DynamicText::PlayerOriginNameEn
-                | DynamicText::PlayerOriginNameJp => msg_builder.mention(&msg.author),
+                | DynamicText::PlayerOriginNameJp => msg_builder.mention(author),
                 DynamicText::NpcTargetName
                 | DynamicText::PlayerTargetNameEn
                 | DynamicText::PlayerTargetNameJp => match &target {
@@ -230,7 +259,14 @@ async fn send_emote(
             Text::Static(s) => msg_builder.push(s),
         };
     });
-    if let Err(e) = msg.reply(&context, msg_builder.build()).await {
+    if let Err(e) = match target_type {
+        SendTargetType::Message(msg) => msg.reply(context, msg_builder.build()).await,
+        SendTargetType::Channel { channel, .. } => {
+            channel
+                .send_message(context, |c| c.content(msg_builder.build()))
+                .await
+        }
+    } {
         error!("failed to send emote message: {:?}", e);
         return;
     }

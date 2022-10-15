@@ -1,18 +1,15 @@
-use std::ops::Deref;
-
 use futures::stream::StreamExt;
 use log::*;
 use serenity::{
-    builder::{CreateApplicationCommand, CreateComponents},
+    builder::{CreateApplicationCommand, CreateComponents, CreateInteractionResponse},
     model::{
         guild::Member,
         id::UserId,
         prelude::{
             command::CommandType,
-            component::InputTextStyle,
+            component::{ActionRowComponent, InputTextStyle},
             interaction::{
-                application_command::ApplicationCommandInteraction,
-                message_component::MessageComponentInteraction, InteractionResponseType,
+                application_command::ApplicationCommandInteraction, InteractionResponseType,
             },
             Message,
         },
@@ -28,7 +25,9 @@ use xiv_emote_parser::{
     repository::LogMessageRepository,
 };
 
-use crate::{send_emote, HandlerError, Target, INTERACTION_TIMEOUT, UNTARGETED_TARGET};
+use crate::{
+    send_emote, HandlerError, SendTargetType, Target, INTERACTION_TIMEOUT, UNTARGETED_TARGET,
+};
 
 pub const CHAT_INPUT_COMMAND_NAME: &'static str = "emote";
 
@@ -149,9 +148,10 @@ async fn emote_component_interaction(
 
     // todo allow setting gender
     let origin = Character::new_from_string(
-        msg.author_nick(&context)
+        cmd.user
+            .nick_in(&context, cmd.guild_id.ok_or(HandlerError::NotGuild)?)
             .await
-            .unwrap_or_else(|| msg.author.name.clone()),
+            .unwrap_or_else(|| cmd.user.name.clone()),
         Gender::Male,
         true,
         false,
@@ -162,44 +162,57 @@ async fn emote_component_interaction(
         trace!("message target: {:?}", target);
         let condition_texts = extract_condition_texts(&messages.en.targeted)?;
         let answers = LogMessageAnswers::new(origin, target)?;
-        send_emote(condition_texts, answers, res.target, context, &msg).await;
+        send_emote(
+            condition_texts,
+            answers,
+            res.target,
+            context,
+            SendTargetType::Channel {
+                channel: &cmd.channel_id,
+                author: &cmd.user,
+            },
+        )
+        .await;
     } else {
         trace!("no message target");
         let condition_texts = extract_condition_texts(&messages.en.untargeted)?;
         let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
-
-        send_emote(condition_texts, answers, None, context, &msg).await;
+        send_emote(
+            condition_texts,
+            answers,
+            None,
+            context,
+            SendTargetType::Channel {
+                channel: &cmd.channel_id,
+                author: &cmd.user,
+            },
+        )
+        .await;
     };
 
     Ok(())
 }
 
-async fn create_response(
-    context: &Context,
-    interaction: impl Deref<Target = MessageComponentInteraction>,
+fn create_response<'a, 'b>(
+    res: &'a mut CreateInteractionResponse<'b>,
     log_message_repo: &LogMessageRepository,
     selected_emote_value: Option<&str>,
     selected_target_value: Option<&Target>,
     members: &Vec<Member>,
-) -> Result<(), HandlerError> {
-    interaction
-        .create_interaction_response(context, |res| {
-            res.kind(InteractionResponseType::UpdateMessage)
-                .interaction_response_data(|d| {
-                    d.ephemeral(true)
-                        .content(INTERACTION_CONTENT)
-                        .components(|c| {
-                            create_user_select_components(
-                                c,
-                                log_message_repo,
-                                selected_emote_value,
-                                |row| create_user_select(row, selected_target_value, members),
-                            )
-                        })
+) -> &'a mut CreateInteractionResponse<'b> {
+    res.kind(InteractionResponseType::UpdateMessage)
+        .interaction_response_data(|d| {
+            d.ephemeral(true)
+                .content(INTERACTION_CONTENT)
+                .components(|c| {
+                    create_user_select_components(
+                        c,
+                        log_message_repo,
+                        selected_emote_value,
+                        |row| create_user_select(row, selected_target_value, members),
+                    )
                 })
         })
-        .await?;
-    Ok(())
 }
 
 async fn handle_interactions(
@@ -219,11 +232,10 @@ async fn handle_interactions(
         .next()
         .await
     {
+        trace!("incoming interaction: {:?}", interaction);
         match interaction.data.custom_id.as_str() {
             INPUT_TARGET_BTN_ID => {
                 debug!("target input");
-                target = None;
-
                 interaction
                     .create_interaction_response(context, |res| {
                         res.kind(InteractionResponseType::Modal)
@@ -244,32 +256,53 @@ async fn handle_interactions(
                     })
                     .await?;
 
-                create_response(
-                    context,
-                    interaction,
-                    log_message_repo,
-                    emote.as_deref(),
-                    target.as_ref(),
-                    &members,
-                )
-                .await?;
-            }
-            INPUT_TARGET_COMPONENT_ID => {
-                debug!("component input");
+                while let Some(modal_interaction) = msg
+                    .await_modal_interactions(context)
+                    .collect_limit(10)
+                    .timeout(INTERACTION_TIMEOUT)
+                    .build()
+                    .next()
+                    .await
+                {
+                    match &modal_interaction.data.components[0].components[0] {
+                        ActionRowComponent::InputText(cmp) => {
+                            trace!("setting target to: {}", cmp.value);
+                            target = Some(Target::Plain(cmp.value.clone()));
+                            modal_interaction
+                                .create_interaction_response(context, |res| {
+                                    create_response(
+                                        res,
+                                        log_message_repo,
+                                        emote.as_deref(),
+                                        target.as_ref(),
+                                        &members,
+                                    )
+                                })
+                                .await?;
+                            break;
+                        }
+                        cmp => {
+                            error!("modal component was not an input text: {:?}", cmp);
+                            return Err(HandlerError::UnexpectedData);
+                        }
+                    }
+                }
             }
             EMOTE_SELECT_ID => {
                 let em = interaction.data.values[0].clone();
                 debug!("emote selected: {}", em);
                 emote.replace(em);
-                create_response(
-                    context,
-                    interaction,
-                    log_message_repo,
-                    emote.as_deref(),
-                    target.as_ref(),
-                    &members,
-                )
-                .await?;
+                interaction
+                    .create_interaction_response(context, |res| {
+                        create_response(
+                            res,
+                            log_message_repo,
+                            emote.as_deref(),
+                            target.as_ref(),
+                            &members,
+                        )
+                    })
+                    .await?;
             }
             TARGET_SELECT_ID => {
                 let ta = interaction.data.values[0].clone();
@@ -290,29 +323,33 @@ async fn handle_interactions(
                         .cloned()
                         .ok_or(HandlerError::UserNotFound)?,
                 ));
-                create_response(
-                    context,
-                    interaction,
-                    log_message_repo,
-                    emote.as_deref(),
-                    target.as_ref(),
-                    &members,
-                )
-                .await?;
+                interaction
+                    .create_interaction_response(context, |res| {
+                        create_response(
+                            res,
+                            log_message_repo,
+                            emote.as_deref(),
+                            target.as_ref(),
+                            &members,
+                        )
+                    })
+                    .await?;
             }
             TARGET_INPUT_ID => {
                 let ta = interaction.data.values[0].clone();
                 debug!("target input: {}", ta);
                 target.replace(Target::Plain(ta));
-                create_response(
-                    context,
-                    interaction,
-                    log_message_repo,
-                    emote.as_deref(),
-                    target.as_ref(),
-                    &members,
-                )
-                .await?;
+                interaction
+                    .create_interaction_response(context, |res| {
+                        create_response(
+                            res,
+                            log_message_repo,
+                            emote.as_deref(),
+                            target.as_ref(),
+                            &members,
+                        )
+                    })
+                    .await?;
             }
             SUBMIT_ID => {
                 if let Some(em) = &emote {
