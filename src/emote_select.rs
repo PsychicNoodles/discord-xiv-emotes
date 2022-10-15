@@ -353,6 +353,14 @@ async fn handle_interactions(
             }
             SUBMIT_ID => {
                 if let Some(em) = &emote {
+                    interaction
+                        .create_interaction_response(context, |res| {
+                            res.kind(InteractionResponseType::UpdateMessage)
+                                .interaction_response_data(|d| {
+                                    d.content("Emote sent!").components(|cmp| cmp)
+                                })
+                        })
+                        .await?;
                     return Ok(InteractionResult {
                         emote: em.clone(),
                         target: target.clone(),
