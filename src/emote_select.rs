@@ -1,13 +1,16 @@
+use std::ops::Deref;
+
 use futures::stream::StreamExt;
 use log::*;
 use serenity::{
-    builder::{CreateActionRow, CreateApplicationCommand, CreateComponents},
+    builder::{CreateApplicationCommand, CreateComponents},
     model::{
         guild::Member,
         prelude::{
             command::CommandType,
             interaction::{
-                application_command::ApplicationCommandInteraction, InteractionResponseType,
+                application_command::ApplicationCommandInteraction,
+                message_component::MessageComponentInteraction, InteractionResponseType,
             },
             Message,
         },
@@ -36,57 +39,71 @@ const SUBMIT_ID: &'static str = "submit";
 const INTERACTION_CONTENT: &'static str = "Select an emote and optionally a target";
 
 fn create_user_select<'a>(
-    row: &'a mut CreateActionRow,
+    c: &'a mut CreateComponents,
     members: &Vec<Member>,
-) -> &'a mut CreateActionRow {
-    row.create_select_menu(|menu| {
-        menu.custom_id(TARGET_SELECT_ID);
-        menu.placeholder("No user selected");
-        menu.options(|opts| {
-            for member in members {
-                opts.create_option(|o| o.label(member.display_name()).value(member.user.id));
-            }
-            opts
+) -> &'a mut CreateComponents {
+    c.create_action_row(|row| {
+        row.create_select_menu(|menu| {
+            menu.custom_id(TARGET_SELECT_ID);
+            menu.placeholder("No user selected");
+            menu.options(|opts| {
+                for member in members {
+                    opts.create_option(|o| o.label(member.display_name()).value(member.user.id));
+                }
+                opts
+            })
         })
     });
-    row.create_button(|btn| {
-        btn.custom_id(SWITCH_TO_INPUT_ID);
-        btn.label("Switch to custom target")
+    c.create_action_row(|row| {
+        row.create_button(|btn| {
+            btn.custom_id(SWITCH_TO_INPUT_ID);
+            btn.label("Switch to custom target")
+        })
     })
 }
 
-fn create_user_input<'a>(row: &'a mut CreateActionRow) -> &'a mut CreateActionRow {
-    row.create_input_text(|inp| {
-        inp.custom_id(TARGET_INPUT_ID);
-        inp.placeholder("Emote target")
+fn create_user_input<'a>(c: &'a mut CreateComponents) -> &'a mut CreateComponents {
+    c.create_action_row(|row| {
+        row.create_input_text(|inp| {
+            inp.custom_id(TARGET_INPUT_ID);
+            inp.placeholder("Emote target")
+        })
     });
-    row.create_button(|btn| {
-        btn.custom_id(SWITCH_TO_SELECT_ID);
-        btn.label("Switch to user list")
+    c.create_action_row(|row| {
+        row.create_button(|btn| {
+            btn.custom_id(SWITCH_TO_SELECT_ID);
+            btn.label("Switch to user list")
+        })
     })
 }
 
 fn create_user_select_components<'a, F>(
     create_components: &'a mut CreateComponents,
     log_message_repo: &LogMessageRepository,
-    create_target_component: F,
+    selected_emote_value: Option<&String>,
+    mut create_target_component: F,
 ) -> &'a mut CreateComponents
 where
-    F: FnMut(&mut CreateActionRow) -> &mut CreateActionRow,
+    F: FnMut(&mut CreateComponents) -> &mut CreateComponents,
 {
     create_components.create_action_row(|row| {
         row.create_select_menu(|menu| {
             menu.custom_id(EMOTE_SELECT_ID);
             menu.placeholder("No emote selected");
             menu.options(|opts| {
-                for emote in log_message_repo.emote_list_by_id() {
-                    opts.create_option(|o| o.label(emote).value(emote));
+                // todo add more button
+                for emote in log_message_repo.emote_list_by_id().take(25) {
+                    opts.create_option(|o| {
+                        o.label(emote).value(emote).default_selection(
+                            selected_emote_value.map(|v| v == emote).unwrap_or(false),
+                        )
+                    });
                 }
                 opts
             })
         })
     });
-    create_components.create_action_row(create_target_component);
+    create_target_component(create_components);
     create_components.create_action_row(|row| {
         row.create_button(|btn| {
             btn.custom_id(SUBMIT_ID);
@@ -106,13 +123,13 @@ async fn emote_component_interaction(
     context: &Context,
     members: Vec<Member>,
 ) -> Result<(), HandlerError> {
-    trace!("creating followup");
+    trace!("creating interaction response");
     cmd.create_interaction_response(context, |res| {
         res.interaction_response_data(|data| {
             data.ephemeral(true)
                 .content(INTERACTION_CONTENT)
                 .components(|c| {
-                    create_user_select_components(c, log_message_repo, |row| {
+                    create_user_select_components(c, log_message_repo, None, |row| {
                         create_user_select(row, &members)
                     })
                 })
@@ -152,14 +169,110 @@ async fn emote_component_interaction(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy)]
+enum TargetComponentType {
+    Input,
+    Select,
+}
+
+impl TargetComponentType {
+    async fn create_input_response(
+        context: &Context,
+        interaction: impl Deref<Target = MessageComponentInteraction>,
+        log_message_repo: &LogMessageRepository,
+        selected_emote_value: Option<&String>,
+        _members: &Vec<Member>,
+    ) -> Result<(), HandlerError> {
+        interaction
+            .create_interaction_response(context, |res| {
+                res.kind(InteractionResponseType::UpdateMessage)
+                    .interaction_response_data(|d| {
+                        d.ephemeral(true)
+                            .content(INTERACTION_CONTENT)
+                            .components(|c| {
+                                create_user_select_components(
+                                    c,
+                                    log_message_repo,
+                                    selected_emote_value,
+                                    |row| create_user_input(row),
+                                )
+                            })
+                    })
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn create_select_response(
+        context: &Context,
+        interaction: impl Deref<Target = MessageComponentInteraction>,
+        log_message_repo: &LogMessageRepository,
+        selected_emote_value: Option<&String>,
+        members: &Vec<Member>,
+    ) -> Result<(), HandlerError> {
+        interaction
+            .create_interaction_response(context, |res| {
+                res.kind(InteractionResponseType::UpdateMessage)
+                    .interaction_response_data(|d| {
+                        d.ephemeral(true)
+                            .content(INTERACTION_CONTENT)
+                            .components(|c| {
+                                create_user_select_components(
+                                    c,
+                                    log_message_repo,
+                                    selected_emote_value,
+                                    |row| create_user_select(row, members),
+                                )
+                            })
+                    })
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn create_response(
+        &self,
+        context: &Context,
+        interaction: impl Deref<Target = MessageComponentInteraction>,
+        log_message_repo: &LogMessageRepository,
+        selected_emote_value: Option<&String>,
+        members: &Vec<Member>,
+    ) -> Result<(), HandlerError> {
+        match self {
+            TargetComponentType::Input => {
+                Self::create_input_response(
+                    context,
+                    interaction,
+                    log_message_repo,
+                    selected_emote_value,
+                    members,
+                )
+                .await
+            }
+            TargetComponentType::Select => {
+                Self::create_select_response(
+                    context,
+                    interaction,
+                    log_message_repo,
+                    selected_emote_value,
+                    members,
+                )
+                .await
+            }
+        }
+    }
+}
+
 async fn handle_interactions(
     context: &Context,
     msg: &Message,
     log_message_repo: &LogMessageRepository,
     members: Vec<Member>,
 ) -> Result<InteractionResult, HandlerError> {
-    let mut emote = None;
-    let mut target = None;
+    let mut emote: Option<String> = None;
+    let mut target: Option<Target> = None;
+    let mut current_type = TargetComponentType::Select;
+
     while let Some(interaction) = msg
         .await_component_interactions(context)
         .collect_limit(20)
@@ -171,37 +284,29 @@ async fn handle_interactions(
         match interaction.data.custom_id.as_str() {
             SWITCH_TO_INPUT_ID => {
                 debug!("switch to target input");
-                interaction
-                    .create_interaction_response(context, |res| {
-                        res.kind(InteractionResponseType::UpdateMessage)
-                            .interaction_response_data(|d| {
-                                d.ephemeral(true)
-                                    .content(INTERACTION_CONTENT)
-                                    .components(|c| {
-                                        create_user_select_components(c, log_message_repo, |row| {
-                                            create_user_input(row)
-                                        })
-                                    })
-                            })
-                    })
+                current_type = TargetComponentType::Input;
+                current_type
+                    .create_response(
+                        context,
+                        interaction,
+                        log_message_repo,
+                        emote.as_ref(),
+                        &members,
+                    )
                     .await?;
                 target.take();
             }
             SWITCH_TO_SELECT_ID => {
                 debug!("switch to target select");
-                interaction
-                    .create_interaction_response(context, |res| {
-                        res.kind(InteractionResponseType::UpdateMessage)
-                            .interaction_response_data(|d| {
-                                d.ephemeral(true)
-                                    .content(INTERACTION_CONTENT)
-                                    .components(|c| {
-                                        create_user_select_components(c, log_message_repo, |row| {
-                                            create_user_select(row, &members)
-                                        })
-                                    })
-                            })
-                    })
+                current_type = TargetComponentType::Select;
+                current_type
+                    .create_response(
+                        context,
+                        interaction,
+                        log_message_repo,
+                        emote.as_ref(),
+                        &members,
+                    )
                     .await?;
                 target.take();
             }
@@ -209,6 +314,15 @@ async fn handle_interactions(
                 let em = interaction.data.values[0].clone();
                 debug!("emote selected: {}", em);
                 emote.replace(em);
+                current_type
+                    .create_response(
+                        context,
+                        interaction,
+                        log_message_repo,
+                        emote.as_ref(),
+                        &members,
+                    )
+                    .await?;
             }
             TARGET_SELECT_ID => {
                 let ta = interaction.data.values[1].clone();
@@ -233,7 +347,7 @@ async fn handle_interactions(
                 target.replace(Target::Plain(ta));
             }
             SUBMIT_ID => {
-                if let Some(em) = emote {
+                if let Some(em) = &emote {
                     return Ok(InteractionResult {
                         emote: em.clone(),
                         target: target.clone(),

@@ -296,7 +296,8 @@ async fn main() {
     let token = env::var("DISCORD_TOKEN").expect("expected DISCORD_TOKEN env var");
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
-        | GatewayIntents::MESSAGE_CONTENT;
+        | GatewayIntents::MESSAGE_CONTENT
+        | GatewayIntents::GUILD_MEMBERS;
     let log_message_repo = LogMessageRepository::from_xivapi(None)
         .await
         .expect("couldn't load log message data from xivapi");
