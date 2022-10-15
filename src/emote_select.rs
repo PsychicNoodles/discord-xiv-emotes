@@ -6,6 +6,7 @@ use serenity::{
     builder::{CreateApplicationCommand, CreateComponents},
     model::{
         guild::Member,
+        id::UserId,
         prelude::{
             command::CommandType,
             interaction::{
@@ -325,24 +326,27 @@ async fn handle_interactions(
                     .await?;
             }
             TARGET_SELECT_ID => {
-                let ta = interaction.data.values[1].clone();
+                let ta = interaction.data.values[0].clone();
                 debug!("target selected: {}", ta);
-                let user_id: u64 = match ta.parse() {
+                let user_id: UserId = match ta.parse::<u64>() {
                     Ok(id) => id,
                     Err(e) => {
                         error!("stored user id was not a number: {:?}", e);
                         return Err(HandlerError::UserNotFound);
                     }
-                };
+                }
+                .into();
                 target.replace(Target::User(
-                    context
-                        .cache
-                        .user(user_id)
+                    members
+                        .iter()
+                        .map(|member| &member.user)
+                        .find(|user| user.id == user_id)
+                        .cloned()
                         .ok_or(HandlerError::UserNotFound)?,
                 ));
             }
             TARGET_INPUT_ID => {
-                let ta = interaction.data.values[1].clone();
+                let ta = interaction.data.values[0].clone();
                 debug!("target input: {}", ta);
                 target.replace(Target::Plain(ta));
             }
