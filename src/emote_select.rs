@@ -33,63 +33,51 @@ use crate::{send_emote, HandlerError, Target, INTERACTION_TIMEOUT, UNTARGETED_TA
 pub const CHAT_INPUT_COMMAND_NAME: &'static str = "emote";
 
 const TARGET_SELECT_ID: &'static str = "user_select";
-const SWITCH_TO_INPUT_ID: &'static str = "switch_to_input";
+const INPUT_TARGET_BTN_ID: &'static str = "input_target_btn";
+const INPUT_TARGET_MODAL_ID: &'static str = "input_target_modal";
+const INPUT_TARGET_COMPONENT_ID: &'static str = "input_target_input";
 const TARGET_INPUT_ID: &'static str = "user_input";
-const SWITCH_TO_SELECT_ID: &'static str = "switch_to_select";
 const EMOTE_SELECT_ID: &'static str = "emote_select";
 const SUBMIT_ID: &'static str = "submit";
 const INTERACTION_CONTENT: &'static str = "Select an emote and optionally a target";
 
 fn create_user_select<'a>(
     c: &'a mut CreateComponents,
-    selected_target_value: Option<&str>,
+    selected_target_value: Option<&Target>,
     members: &Vec<Member>,
 ) -> &'a mut CreateComponents {
     c.create_action_row(|row| {
         row.create_select_menu(|menu| {
-            menu.custom_id(TARGET_SELECT_ID);
-            menu.placeholder("No user selected");
-            menu.options(|opts| {
-                for member in members {
-                    opts.create_option(|o| {
-                        let value = member.user.id;
-                        o.label(member.display_name())
-                            .value(value)
-                            .default_selection(
-                                selected_target_value
-                                    .map(|v| v == value.to_string().as_str())
-                                    .unwrap_or(false),
-                            )
-                    });
-                }
-                opts
-            })
+            menu.custom_id(TARGET_SELECT_ID)
+                .placeholder(
+                    selected_target_value
+                        .and_then(|t| match t {
+                            Target::Plain(s) => Some(s.as_str()),
+                            _ => None,
+                        })
+                        .unwrap_or("No user selected"),
+                )
+                .options(|opts| {
+                    for member in members {
+                        opts.create_option(|o| {
+                            let value = member.user.id;
+                            o.label(member.display_name())
+                                .value(value)
+                                .default_selection(
+                                    selected_target_value
+                                        .map(|t| matches!(t, Target::User(u) if u.id == value))
+                                        .unwrap_or(false),
+                                )
+                        });
+                    }
+                    opts
+                })
         })
     });
     c.create_action_row(|row| {
         row.create_button(|btn| {
-            btn.custom_id(SWITCH_TO_INPUT_ID);
-            btn.label("Switch to custom target")
-        })
-    })
-}
-
-fn create_user_input<'a>(
-    c: &'a mut CreateComponents,
-    selected_target_value: Option<&str>,
-) -> &'a mut CreateComponents {
-    c.create_action_row(|row| {
-        row.create_input_text(|inp| {
-            inp.custom_id(TARGET_INPUT_ID)
-                .value(selected_target_value.unwrap_or(""))
-                .style(InputTextStyle::Short)
-                .label("Emote target")
-        })
-    });
-    c.create_action_row(|row| {
-        row.create_button(|btn| {
-            btn.custom_id(SWITCH_TO_SELECT_ID);
-            btn.label("Switch to user list")
+            btn.custom_id(INPUT_TARGET_BTN_ID);
+            btn.label("Input custom target")
         })
     })
 }
@@ -186,103 +174,32 @@ async fn emote_component_interaction(
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy)]
-enum TargetComponentType {
-    Input,
-    Select,
-}
-
-impl TargetComponentType {
-    async fn create_input_response(
-        context: &Context,
-        interaction: impl Deref<Target = MessageComponentInteraction>,
-        log_message_repo: &LogMessageRepository,
-        selected_emote_value: Option<&str>,
-        selected_target_value: Option<&str>,
-        _members: &Vec<Member>,
-    ) -> Result<(), HandlerError> {
-        interaction
-            .create_interaction_response(context, |res| {
-                res.kind(InteractionResponseType::UpdateMessage)
-                    .interaction_response_data(|d| {
-                        d.ephemeral(true)
-                            .content(INTERACTION_CONTENT)
-                            .components(|c| {
-                                create_user_select_components(
-                                    c,
-                                    log_message_repo,
-                                    selected_emote_value,
-                                    |row| create_user_input(row, selected_target_value),
-                                )
-                            })
-                    })
-            })
-            .await?;
-        Ok(())
-    }
-
-    async fn create_select_response(
-        context: &Context,
-        interaction: impl Deref<Target = MessageComponentInteraction>,
-        log_message_repo: &LogMessageRepository,
-        selected_emote_value: Option<&str>,
-        selected_target_value: Option<&str>,
-        members: &Vec<Member>,
-    ) -> Result<(), HandlerError> {
-        interaction
-            .create_interaction_response(context, |res| {
-                res.kind(InteractionResponseType::UpdateMessage)
-                    .interaction_response_data(|d| {
-                        d.ephemeral(true)
-                            .content(INTERACTION_CONTENT)
-                            .components(|c| {
-                                create_user_select_components(
-                                    c,
-                                    log_message_repo,
-                                    selected_emote_value,
-                                    |row| create_user_select(row, selected_target_value, members),
-                                )
-                            })
-                    })
-            })
-            .await?;
-        Ok(())
-    }
-
-    async fn create_response(
-        &self,
-        context: &Context,
-        interaction: impl Deref<Target = MessageComponentInteraction>,
-        log_message_repo: &LogMessageRepository,
-        selected_emote_value: Option<&str>,
-        selected_target_value: Option<&str>,
-        members: &Vec<Member>,
-    ) -> Result<(), HandlerError> {
-        match self {
-            TargetComponentType::Input => {
-                Self::create_input_response(
-                    context,
-                    interaction,
-                    log_message_repo,
-                    selected_emote_value,
-                    selected_target_value,
-                    members,
-                )
-                .await
-            }
-            TargetComponentType::Select => {
-                Self::create_select_response(
-                    context,
-                    interaction,
-                    log_message_repo,
-                    selected_emote_value,
-                    selected_target_value,
-                    members,
-                )
-                .await
-            }
-        }
-    }
+async fn create_response(
+    context: &Context,
+    interaction: impl Deref<Target = MessageComponentInteraction>,
+    log_message_repo: &LogMessageRepository,
+    selected_emote_value: Option<&str>,
+    selected_target_value: Option<&Target>,
+    members: &Vec<Member>,
+) -> Result<(), HandlerError> {
+    interaction
+        .create_interaction_response(context, |res| {
+            res.kind(InteractionResponseType::UpdateMessage)
+                .interaction_response_data(|d| {
+                    d.ephemeral(true)
+                        .content(INTERACTION_CONTENT)
+                        .components(|c| {
+                            create_user_select_components(
+                                c,
+                                log_message_repo,
+                                selected_emote_value,
+                                |row| create_user_select(row, selected_target_value, members),
+                            )
+                        })
+                })
+        })
+        .await?;
+    Ok(())
 }
 
 async fn handle_interactions(
@@ -293,7 +210,6 @@ async fn handle_interactions(
 ) -> Result<InteractionResult, HandlerError> {
     let mut emote: Option<String> = None;
     let mut target: Option<Target> = None;
-    let mut current_type = TargetComponentType::Select;
 
     while let Some(interaction) = msg
         .await_component_interactions(context)
@@ -304,50 +220,56 @@ async fn handle_interactions(
         .await
     {
         match interaction.data.custom_id.as_str() {
-            SWITCH_TO_INPUT_ID => {
-                debug!("switch to target input");
+            INPUT_TARGET_BTN_ID => {
+                debug!("target input");
                 target = None;
-                current_type = TargetComponentType::Input;
-                current_type
-                    .create_response(
-                        context,
-                        interaction,
-                        log_message_repo,
-                        emote.as_deref(),
-                        target.as_ref().map(|t| t.to_value()).as_deref(),
-                        &members,
-                    )
+
+                interaction
+                    .create_interaction_response(context, |res| {
+                        res.kind(InteractionResponseType::Modal)
+                            .interaction_response_data(|d| {
+                                d.content("Input target name")
+                                    .components(|c| {
+                                        c.create_action_row(|row| {
+                                            row.create_input_text(|inp| {
+                                                inp.custom_id(INPUT_TARGET_COMPONENT_ID)
+                                                    .style(InputTextStyle::Short)
+                                                    .label("Target name")
+                                            })
+                                        })
+                                    })
+                                    .title("Custom target input")
+                                    .custom_id(INPUT_TARGET_MODAL_ID)
+                            })
+                    })
                     .await?;
+
+                create_response(
+                    context,
+                    interaction,
+                    log_message_repo,
+                    emote.as_deref(),
+                    target.as_ref(),
+                    &members,
+                )
+                .await?;
             }
-            SWITCH_TO_SELECT_ID => {
-                debug!("switch to target select");
-                target = None;
-                current_type = TargetComponentType::Select;
-                current_type
-                    .create_response(
-                        context,
-                        interaction,
-                        log_message_repo,
-                        emote.as_deref(),
-                        target.as_ref().map(|t| t.to_value()).as_deref(),
-                        &members,
-                    )
-                    .await?;
+            INPUT_TARGET_COMPONENT_ID => {
+                debug!("component input");
             }
             EMOTE_SELECT_ID => {
                 let em = interaction.data.values[0].clone();
                 debug!("emote selected: {}", em);
                 emote.replace(em);
-                current_type
-                    .create_response(
-                        context,
-                        interaction,
-                        log_message_repo,
-                        emote.as_deref(),
-                        target.as_ref().map(|t| t.to_value()).as_deref(),
-                        &members,
-                    )
-                    .await?;
+                create_response(
+                    context,
+                    interaction,
+                    log_message_repo,
+                    emote.as_deref(),
+                    target.as_ref(),
+                    &members,
+                )
+                .await?;
             }
             TARGET_SELECT_ID => {
                 let ta = interaction.data.values[0].clone();
@@ -368,31 +290,29 @@ async fn handle_interactions(
                         .cloned()
                         .ok_or(HandlerError::UserNotFound)?,
                 ));
-                current_type
-                    .create_response(
-                        context,
-                        interaction,
-                        log_message_repo,
-                        emote.as_deref(),
-                        target.as_ref().map(|t| t.to_value()).as_deref(),
-                        &members,
-                    )
-                    .await?;
+                create_response(
+                    context,
+                    interaction,
+                    log_message_repo,
+                    emote.as_deref(),
+                    target.as_ref(),
+                    &members,
+                )
+                .await?;
             }
             TARGET_INPUT_ID => {
                 let ta = interaction.data.values[0].clone();
                 debug!("target input: {}", ta);
                 target.replace(Target::Plain(ta));
-                current_type
-                    .create_response(
-                        context,
-                        interaction,
-                        log_message_repo,
-                        emote.as_deref(),
-                        target.as_ref().map(|t| t.to_value()).as_deref(),
-                        &members,
-                    )
-                    .await?;
+                create_response(
+                    context,
+                    interaction,
+                    log_message_repo,
+                    emote.as_deref(),
+                    target.as_ref(),
+                    &members,
+                )
+                .await?;
             }
             SUBMIT_ID => {
                 if let Some(em) = &emote {
