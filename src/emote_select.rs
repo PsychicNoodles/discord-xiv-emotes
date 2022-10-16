@@ -30,10 +30,10 @@ use crate::{
     send_emote, HandlerError, SendTargetType, Target, INTERACTION_TIMEOUT, UNTARGETED_TARGET,
 };
 
-pub const CHAT_INPUT_COMMAND_NAME: &'static str = "emote";
+pub const CHAT_INPUT_COMMAND_NAME: &str = "emote";
 
-const INPUT_TARGET_MODAL: &'static str = "input_target_modal";
-const INPUT_TARGET_COMPONENT: &'static str = "input_target_input";
+const INPUT_TARGET_MODAL: &str = "input_target_modal";
+const INPUT_TARGET_COMPONENT: &str = "input_target_input";
 
 enum Ids {
     TargetSelect,
@@ -89,7 +89,7 @@ impl TryFrom<&str> for Ids {
     }
 }
 
-const INTERACTION_CONTENT: &'static str = "Select an emote and optionally a target";
+const INTERACTION_CONTENT: &str = "Select an emote and optionally a target";
 
 // max number of select menu options
 const EMOTE_LIST_OFFSET_STEP: usize = 25;
@@ -355,12 +355,9 @@ async fn handle_interactions(
                     })
                     .await?;
 
-                while let Some(modal_interaction) = msg
-                    .await_modal_interactions(context)
-                    .collect_limit(10)
+                if let Some(modal_interaction) = msg
+                    .await_modal_interaction(context)
                     .timeout(INTERACTION_TIMEOUT)
-                    .build()
-                    .next()
                     .await
                 {
                     match &modal_interaction.data.components[0].components[0] {
@@ -495,9 +492,7 @@ pub async fn handle_chat_input(
     Ok(())
 }
 
-pub fn register_chat_input<'a>(
-    cmd: &'a mut CreateApplicationCommand,
-) -> &'a mut CreateApplicationCommand {
+pub fn register_chat_input(cmd: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
     cmd.name(CHAT_INPUT_COMMAND_NAME)
         .kind(CommandType::ChatInput)
         .description("Select an emote and optionally a target user")

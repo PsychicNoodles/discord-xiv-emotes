@@ -33,7 +33,7 @@ struct Handler {
 // untargeted messages shouldn't reference target character at all, but just in case
 const UNTARGETED_TARGET: Character =
     Character::new("Godbert Manderville", Gender::Male, false, false);
-const PREFIX: &'static str = "!";
+const PREFIX: &str = "!";
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Error)]
@@ -111,16 +111,6 @@ impl ToString for Target {
     }
 }
 
-impl Target {
-    fn to_value(&self) -> String {
-        match self {
-            Target::User(u) => u.id.to_string(),
-            Target::Role(r) => r.id.to_string(),
-            Target::Plain(s) => s.to_string(),
-        }
-    }
-}
-
 async fn process_input(
     mparts: &[&str],
     log_message_repo: &LogMessageRepository,
@@ -153,7 +143,7 @@ async fn process_input(
                 false,
             );
             trace!("message origin: {:?}", origin);
-            let target_name = match determine_mention(&msg, &context).await {
+            let target_name = match determine_mention(msg, context).await {
                 Some(n) => n,
                 None => Target::Plain(mention.to_string()),
             };
@@ -166,8 +156,8 @@ async fn process_input(
                 condition_texts,
                 answers,
                 Some(target_name),
-                &context,
-                SendTargetType::Message(&msg),
+                context,
+                SendTargetType::Message(msg),
             )
             .await;
             Ok(())
@@ -191,8 +181,8 @@ async fn process_input(
                 condition_texts,
                 answers,
                 None,
-                &context,
-                SendTargetType::Message(&msg),
+                context,
+                SendTargetType::Message(msg),
             )
             .await;
             Ok(())
@@ -269,7 +259,6 @@ async fn send_emote<'a>(
         }
     } {
         error!("failed to send emote message: {:?}", e);
-        return;
     }
 }
 
