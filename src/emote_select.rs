@@ -26,7 +26,8 @@ use xiv_emote_parser::{
 };
 
 use crate::{
-    send_emote, HandlerError, SendTargetType, Target, INTERACTION_TIMEOUT, UNTARGETED_TARGET,
+    send_emote, HandlerError, SendTargetType, Target, INTERACTION_TIMEOUT, PREFIX,
+    UNTARGETED_TARGET,
 };
 
 pub const CHAT_INPUT_COMMAND_NAME: &'static str = "emote";
@@ -393,7 +394,16 @@ async fn handle_interactions(
                         .create_interaction_response(context, |res| {
                             res.kind(InteractionResponseType::UpdateMessage)
                                 .interaction_response_data(|d| {
-                                    d.content("Emote sent!").components(|cmp| cmp)
+                                    d.content(format!(
+                                        "Emote sent! ({}{})",
+                                        em,
+                                        if let Some(t) = &target {
+                                            [" ".to_string(), t.to_string()].concat()
+                                        } else {
+                                            "".to_string()
+                                        }
+                                    ))
+                                    .components(|cmp| cmp)
                                 })
                         })
                         .await?;
