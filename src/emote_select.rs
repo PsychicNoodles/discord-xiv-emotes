@@ -16,6 +16,7 @@ use serenity::{
     },
     prelude::Context,
 };
+use thiserror::Error;
 use xiv_emote_parser::{
     log_message::{
         condition::{Character, Gender},
@@ -26,21 +27,68 @@ use xiv_emote_parser::{
 };
 
 use crate::{
-    send_emote, HandlerError, SendTargetType, Target, INTERACTION_TIMEOUT, PREFIX,
-    UNTARGETED_TARGET,
+    send_emote, HandlerError, SendTargetType, Target, INTERACTION_TIMEOUT, UNTARGETED_TARGET,
 };
 
 pub const CHAT_INPUT_COMMAND_NAME: &'static str = "emote";
 
-const TARGET_SELECT_ID: &'static str = "user_select";
-const INPUT_TARGET_BTN_ID: &'static str = "input_target_btn";
-const INPUT_TARGET_MODAL_ID: &'static str = "input_target_modal";
-const INPUT_TARGET_COMPONENT_ID: &'static str = "input_target_input";
-const TARGET_INPUT_ID: &'static str = "user_input";
-const EMOTE_SELECT_ID: &'static str = "emote_select";
-const EMOTE_PREV_BTN_ID: &'static str = "prev_emotes";
-const EMOTE_NEXT_BTN_ID: &'static str = "next_emotes";
-const SUBMIT_ID: &'static str = "submit";
+const INPUT_TARGET_MODAL: &'static str = "input_target_modal";
+const INPUT_TARGET_COMPONENT: &'static str = "input_target_input";
+
+enum Ids {
+    TargetSelect,
+    InputTargetBtn,
+    EmoteSelect,
+    EmotePrevBtn,
+    EmoteNextBtn,
+    Submit,
+}
+
+impl From<Ids> for &'static str {
+    fn from(ids: Ids) -> Self {
+        From::<&Ids>::from(&ids)
+    }
+}
+
+impl From<&Ids> for &'static str {
+    fn from(ids: &Ids) -> Self {
+        match ids {
+            Ids::TargetSelect => "user_select",
+            Ids::InputTargetBtn => "input_target_btn",
+            Ids::EmoteSelect => "emote_select",
+            Ids::EmotePrevBtn => "prev_emotes",
+            Ids::EmoteNextBtn => "next_emotes",
+            Ids::Submit => "submit",
+        }
+    }
+}
+
+impl ToString for Ids {
+    fn to_string(&self) -> String {
+        Into::<&'static str>::into(self).to_string()
+    }
+}
+
+#[derive(Debug, Clone, Error)]
+#[error("Unrecognized component id ({0})")]
+struct InvalidComponentId(String);
+
+impl TryFrom<&str> for Ids {
+    type Error = InvalidComponentId;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "user_select" => Ok(Ids::TargetSelect),
+            "input_target_btn" => Ok(Ids::InputTargetBtn),
+            "emote_select" => Ok(Ids::EmoteSelect),
+            "prev_emotes" => Ok(Ids::EmotePrevBtn),
+            "next_emotes" => Ok(Ids::EmoteNextBtn),
+            "submit" => Ok(Ids::Submit),
+            s => Err(InvalidComponentId(s.to_string())),
+        }
+    }
+}
+
 const INTERACTION_CONTENT: &'static str = "Select an emote and optionally a target";
 
 // max number of select menu options
@@ -53,7 +101,7 @@ fn create_user_select<'a>(
 ) -> &'a mut CreateComponents {
     c.create_action_row(|row| {
         row.create_select_menu(|menu| {
-            menu.custom_id(TARGET_SELECT_ID)
+            menu.custom_id(Ids::TargetSelect)
                 .placeholder(
                     selected_target_value
                         .and_then(|t| match t {
@@ -81,7 +129,7 @@ fn create_user_select<'a>(
     });
     c.create_action_row(|row| {
         row.create_button(|btn| {
-            btn.custom_id(INPUT_TARGET_BTN_ID);
+            btn.custom_id(Ids::InputTargetBtn);
             btn.label("Input custom target")
         })
     })
@@ -99,7 +147,7 @@ where
 {
     create_components.create_action_row(|row| {
         row.create_select_menu(|menu| {
-            menu.custom_id(EMOTE_SELECT_ID)
+            menu.custom_id(Ids::EmoteSelect)
                 .placeholder("No emote selected")
                 .options(|opts| {
                     for emote in emote_list
@@ -121,7 +169,7 @@ where
     });
     create_components.create_action_row(|row| {
         row.create_button(|btn| {
-            btn.custom_id(EMOTE_PREV_BTN_ID)
+            btn.custom_id(Ids::EmotePrevBtn)
                 .label("Previous emote page")
                 .disabled(
                     emote_list_offset
@@ -130,7 +178,7 @@ where
                 )
         });
         row.create_button(|btn| {
-            btn.custom_id(EMOTE_NEXT_BTN_ID)
+            btn.custom_id(Ids::EmoteNextBtn)
                 .label("Next emote page")
                 .disabled(
                     emote_list_offset
@@ -142,7 +190,7 @@ where
     create_target_component(create_components);
     create_components.create_action_row(|row| {
         row.create_button(|btn| {
-            btn.custom_id(SUBMIT_ID);
+            btn.custom_id(Ids::Submit);
             btn.label("Send")
         })
     })
@@ -284,8 +332,8 @@ async fn handle_interactions(
         .await
     {
         trace!("incoming interaction: {:?}", interaction);
-        match interaction.data.custom_id.as_str() {
-            INPUT_TARGET_BTN_ID => {
+        match Ids::try_from(interaction.data.custom_id.as_str()) {
+            Ok(Ids::InputTargetBtn) => {
                 debug!("target input");
                 interaction
                     .create_interaction_response(context, |res| {
@@ -295,14 +343,14 @@ async fn handle_interactions(
                                     .components(|c| {
                                         c.create_action_row(|row| {
                                             row.create_input_text(|inp| {
-                                                inp.custom_id(INPUT_TARGET_COMPONENT_ID)
+                                                inp.custom_id(INPUT_TARGET_COMPONENT)
                                                     .style(InputTextStyle::Short)
                                                     .label("Target name")
                                             })
                                         })
                                     })
                                     .title("Custom target input")
-                                    .custom_id(INPUT_TARGET_MODAL_ID)
+                                    .custom_id(INPUT_TARGET_MODAL)
                             })
                     })
                     .await?;
@@ -342,12 +390,12 @@ async fn handle_interactions(
                 // don't send typical interaction response
                 continue;
             }
-            EMOTE_SELECT_ID => {
+            Ok(Ids::EmoteSelect) => {
                 let em = interaction.data.values[0].clone();
                 debug!("emote selected: {}", em);
                 emote.replace(em);
             }
-            EMOTE_PREV_BTN_ID => {
+            Ok(Ids::EmotePrevBtn) => {
                 debug!("previous emote list page");
                 emote_list_offset = match emote_list_offset {
                     None => None,
@@ -355,7 +403,7 @@ async fn handle_interactions(
                     Some(o) => Some(o - EMOTE_LIST_OFFSET_STEP),
                 };
             }
-            EMOTE_NEXT_BTN_ID => {
+            Ok(Ids::EmoteNextBtn) => {
                 debug!("next emote list page");
                 emote_list_offset = match emote_list_offset {
                     None => Some(EMOTE_LIST_OFFSET_STEP),
@@ -363,7 +411,7 @@ async fn handle_interactions(
                     Some(o) => Some(o + EMOTE_LIST_OFFSET_STEP),
                 };
             }
-            TARGET_SELECT_ID => {
+            Ok(Ids::TargetSelect) => {
                 let ta = interaction.data.values[0].clone();
                 debug!("target selected: {}", ta);
                 let user_id: UserId = match ta.parse::<u64>() {
@@ -383,12 +431,7 @@ async fn handle_interactions(
                         .ok_or(HandlerError::UserNotFound)?,
                 ));
             }
-            TARGET_INPUT_ID => {
-                let ta = interaction.data.values[0].clone();
-                debug!("target input: {}", ta);
-                target.replace(Target::Plain(ta));
-            }
-            SUBMIT_ID => {
+            Ok(Ids::Submit) => {
                 if let Some(em) = &emote {
                     interaction
                         .create_interaction_response(context, |res| {
@@ -415,8 +458,8 @@ async fn handle_interactions(
                     debug!("tried submitting without all necessary selections");
                 }
             }
-            s => {
-                error!("unexpected component id: {}", s);
+            Err(e) => {
+                error!("unexpected component id: {}", e);
             }
         }
 
