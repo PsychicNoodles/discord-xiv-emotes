@@ -37,8 +37,13 @@ const INPUT_TARGET_MODAL_ID: &'static str = "input_target_modal";
 const INPUT_TARGET_COMPONENT_ID: &'static str = "input_target_input";
 const TARGET_INPUT_ID: &'static str = "user_input";
 const EMOTE_SELECT_ID: &'static str = "emote_select";
+const EMOTE_PREV_BTN_ID: &'static str = "prev_emotes";
+const EMOTE_NEXT_BTN_ID: &'static str = "next_emotes";
 const SUBMIT_ID: &'static str = "submit";
 const INTERACTION_CONTENT: &'static str = "Select an emote and optionally a target";
+
+// max number of select menu options
+const EMOTE_LIST_OFFSET_STEP: usize = 25;
 
 fn create_user_select<'a>(
     c: &'a mut CreateComponents,
@@ -83,7 +88,8 @@ fn create_user_select<'a>(
 
 fn create_user_select_components<'a, F>(
     create_components: &'a mut CreateComponents,
-    log_message_repo: &LogMessageRepository,
+    emote_list: &Vec<&String>,
+    emote_list_offset: Option<usize>,
     selected_emote_value: Option<&str>,
     mut create_target_component: F,
 ) -> &'a mut CreateComponents
@@ -92,19 +98,44 @@ where
 {
     create_components.create_action_row(|row| {
         row.create_select_menu(|menu| {
-            menu.custom_id(EMOTE_SELECT_ID);
-            menu.placeholder("No emote selected");
-            menu.options(|opts| {
-                // todo add more button
-                for emote in log_message_repo.emote_list_by_id().take(25) {
-                    opts.create_option(|o| {
-                        o.label(emote).value(emote).default_selection(
-                            selected_emote_value.map(|v| v == emote).unwrap_or(false),
-                        )
-                    });
-                }
-                opts
-            })
+            menu.custom_id(EMOTE_SELECT_ID)
+                .placeholder("No emote selected")
+                .options(|opts| {
+                    for emote in emote_list
+                        .iter()
+                        .skip(emote_list_offset.unwrap_or(0))
+                        .take(EMOTE_LIST_OFFSET_STEP)
+                    {
+                        opts.create_option(|o| {
+                            o.label(emote).value(emote).default_selection(
+                                selected_emote_value
+                                    .map(|v| v == emote.as_str())
+                                    .unwrap_or(false),
+                            )
+                        });
+                    }
+                    opts
+                })
+        })
+    });
+    create_components.create_action_row(|row| {
+        row.create_button(|btn| {
+            btn.custom_id(EMOTE_PREV_BTN_ID)
+                .label("Previous emote page")
+                .disabled(
+                    emote_list_offset
+                        .map(|off| off < EMOTE_LIST_OFFSET_STEP)
+                        .unwrap_or(true),
+                )
+        });
+        row.create_button(|btn| {
+            btn.custom_id(EMOTE_NEXT_BTN_ID)
+                .label("Next emote page")
+                .disabled(
+                    emote_list_offset
+                        .map(|off| off + EMOTE_LIST_OFFSET_STEP >= emote_list.len())
+                        .unwrap_or(false),
+                )
         })
     });
     create_target_component(create_components);
@@ -121,6 +152,18 @@ struct InteractionResult {
     target: Option<Target>,
 }
 
+fn interaction_response_content(emote_list_len: usize, emote_list_offset: Option<usize>) -> String {
+    format!(
+        "{} (page {} of {})",
+        INTERACTION_CONTENT,
+        emote_list_offset
+            .map(|off| off / EMOTE_LIST_OFFSET_STEP)
+            .unwrap_or(0)
+            + 1,
+        emote_list_len / EMOTE_LIST_OFFSET_STEP + 1
+    )
+}
+
 async fn emote_component_interaction(
     cmd: &ApplicationCommandInteraction,
     log_message_repo: &LogMessageRepository,
@@ -128,12 +171,13 @@ async fn emote_component_interaction(
     members: Vec<Member>,
 ) -> Result<(), HandlerError> {
     trace!("creating interaction response");
+    let emote_list: Vec<_> = log_message_repo.emote_list_by_id().collect();
     cmd.create_interaction_response(context, |res| {
         res.interaction_response_data(|data| {
             data.ephemeral(true)
-                .content(INTERACTION_CONTENT)
+                .content(interaction_response_content(emote_list.len(), None))
                 .components(|c| {
-                    create_user_select_components(c, log_message_repo, None, |row| {
+                    create_user_select_components(c, &emote_list, None, None, |row| {
                         create_user_select(row, None, &members)
                     })
                 })
@@ -142,7 +186,7 @@ async fn emote_component_interaction(
     .await?;
     let msg = cmd.get_interaction_response(context).await?;
     trace!("awaiting interactions");
-    let res = handle_interactions(context, &msg, log_message_repo, members).await?;
+    let res = handle_interactions(context, &msg, &emote_list, members).await?;
 
     let messages = log_message_repo.messages(&res.emote)?;
 
@@ -195,7 +239,8 @@ async fn emote_component_interaction(
 
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
-    log_message_repo: &LogMessageRepository,
+    emote_list: &Vec<&String>,
+    emote_list_offset: Option<usize>,
     selected_emote_value: Option<&str>,
     selected_target_value: Option<&Target>,
     members: &Vec<Member>,
@@ -203,11 +248,15 @@ fn create_response<'a, 'b>(
     res.kind(InteractionResponseType::UpdateMessage)
         .interaction_response_data(|d| {
             d.ephemeral(true)
-                .content(INTERACTION_CONTENT)
+                .content(interaction_response_content(
+                    emote_list.len(),
+                    emote_list_offset,
+                ))
                 .components(|c| {
                     create_user_select_components(
                         c,
-                        log_message_repo,
+                        emote_list,
+                        emote_list_offset,
                         selected_emote_value,
                         |row| create_user_select(row, selected_target_value, members),
                     )
@@ -218,10 +267,11 @@ fn create_response<'a, 'b>(
 async fn handle_interactions(
     context: &Context,
     msg: &Message,
-    log_message_repo: &LogMessageRepository,
+    emote_list: &Vec<&String>,
     members: Vec<Member>,
 ) -> Result<InteractionResult, HandlerError> {
     let mut emote: Option<String> = None;
+    let mut emote_list_offset: Option<usize> = None;
     let mut target: Option<Target> = None;
 
     while let Some(interaction) = msg
@@ -272,7 +322,8 @@ async fn handle_interactions(
                                 .create_interaction_response(context, |res| {
                                     create_response(
                                         res,
-                                        log_message_repo,
+                                        emote_list,
+                                        emote_list_offset,
                                         emote.as_deref(),
                                         target.as_ref(),
                                         &members,
@@ -287,22 +338,29 @@ async fn handle_interactions(
                         }
                     }
                 }
+                // don't send typical interaction response
+                continue;
             }
             EMOTE_SELECT_ID => {
                 let em = interaction.data.values[0].clone();
                 debug!("emote selected: {}", em);
                 emote.replace(em);
-                interaction
-                    .create_interaction_response(context, |res| {
-                        create_response(
-                            res,
-                            log_message_repo,
-                            emote.as_deref(),
-                            target.as_ref(),
-                            &members,
-                        )
-                    })
-                    .await?;
+            }
+            EMOTE_PREV_BTN_ID => {
+                debug!("previous emote list page");
+                emote_list_offset = match emote_list_offset {
+                    None => None,
+                    Some(_o) if _o <= EMOTE_LIST_OFFSET_STEP => None,
+                    Some(o) => Some(o - EMOTE_LIST_OFFSET_STEP),
+                };
+            }
+            EMOTE_NEXT_BTN_ID => {
+                debug!("next emote list page");
+                emote_list_offset = match emote_list_offset {
+                    None => Some(EMOTE_LIST_OFFSET_STEP),
+                    Some(_o) if _o + EMOTE_LIST_OFFSET_STEP >= emote_list.len() => Some(_o),
+                    Some(o) => Some(o + EMOTE_LIST_OFFSET_STEP),
+                };
             }
             TARGET_SELECT_ID => {
                 let ta = interaction.data.values[0].clone();
@@ -323,33 +381,11 @@ async fn handle_interactions(
                         .cloned()
                         .ok_or(HandlerError::UserNotFound)?,
                 ));
-                interaction
-                    .create_interaction_response(context, |res| {
-                        create_response(
-                            res,
-                            log_message_repo,
-                            emote.as_deref(),
-                            target.as_ref(),
-                            &members,
-                        )
-                    })
-                    .await?;
             }
             TARGET_INPUT_ID => {
                 let ta = interaction.data.values[0].clone();
                 debug!("target input: {}", ta);
                 target.replace(Target::Plain(ta));
-                interaction
-                    .create_interaction_response(context, |res| {
-                        create_response(
-                            res,
-                            log_message_repo,
-                            emote.as_deref(),
-                            target.as_ref(),
-                            &members,
-                        )
-                    })
-                    .await?;
             }
             SUBMIT_ID => {
                 if let Some(em) = &emote {
@@ -373,6 +409,19 @@ async fn handle_interactions(
                 error!("unexpected component id: {}", s);
             }
         }
+
+        interaction
+            .create_interaction_response(context, |res| {
+                create_response(
+                    res,
+                    emote_list,
+                    emote_list_offset,
+                    emote.as_deref(),
+                    target.as_ref(),
+                    &members,
+                )
+            })
+            .await?;
     }
     Err(HandlerError::TimeoutOrOverLimit)
 }
