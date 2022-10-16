@@ -8,9 +8,11 @@ edition = "2021"
 [dependencies]
 xiv-emote-parser = { git = "https://github.com/PsychicNoodles/xiv-emote-parser", features = ["xivapi"] }
 serenity = { version = "0.11.5", default-features = false, features = ["client", "gateway", "model", "cache", "utils", "rustls_backend", "collector"] }
-tokio = { version = "1.21", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.20", features = ["macros", "rt-multi-thread"] }
 dotenv = "0.15"
 thiserror = "1.0"
 log = "0.4"
 pretty_env_logger = "0.4"
 futures = "0.3"
+shuttle-secrets = "0.6"
+shuttle-service = { version = "0.6", features = ["bot-serenity"] }

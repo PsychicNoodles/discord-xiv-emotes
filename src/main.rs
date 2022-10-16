@@ -3,6 +3,7 @@ mod emote_select;
 use dotenv::dotenv;
 use emote_select::CHAT_INPUT_COMMAND_NAME;
 use log::*;
+use shuttle_secrets::SecretStore;
 use std::{env, time::Duration};
 use thiserror::Error;
 
@@ -335,11 +336,7 @@ impl EventHandler for Handler {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    pretty_env_logger::init();
-    dotenv().ok();
-    let token = env::var("DISCORD_TOKEN").expect("expected DISCORD_TOKEN env var");
+async fn setup_client(token: String) -> Client {
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT
@@ -351,10 +348,29 @@ async fn main() {
         "repo initialized with emotes: {:?}",
         log_message_repo.emote_list_by_id().collect::<Vec<_>>()
     );
-    let mut client = Client::builder(&token, intents)
+    Client::builder(&token, intents)
         .event_handler(Handler { log_message_repo })
         .await
-        .expect("error creating client");
+        .expect("error creating client")
+}
+
+#[tokio::main]
+async fn main() {
+    pretty_env_logger::init();
+    dotenv().ok();
+    let token = env::var("DISCORD_TOKEN").expect("expected DISCORD_TOKEN env var");
+    let mut client = setup_client(token).await;
 
     client.start().await.expect("couldn't start client");
+}
+
+#[shuttle_service::main]
+async fn shuttle_main(
+    #[shuttle_secrets::Secrets] secret_store: SecretStore,
+) -> shuttle_service::ShuttleSerenity {
+    let token = secret_store
+        .get("DISCORD_TOKEN")
+        .expect("could not find discord token");
+    let client = setup_client(token).await;
+    Ok(client)
 }
