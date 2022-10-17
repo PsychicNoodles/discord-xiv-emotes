@@ -679,9 +679,9 @@ dependencies = [
 
 [[package]]
 name = "iana-time-zone-haiku"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fde6edd6cef363e9359ed3c98ba64590ba9eecba2293eb5a723ab32aee8926aa"
+checksum = "0703ae284fc167426161c2e3f1da3ea71d94b21bedbcc9494e92b28e334e3dca"
 dependencies = [
  "cxx",
  "cxx-build",
@@ -1134,9 +1134,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.46"
+version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94e2ef8dbfc347b10c094890f778ee2e36ca9bb4262e86dc99cd217e35f3470b"
+checksum = "5ea3d908b0e36316caf9e9e2c4625cdde190a7e6f440d794667ed17a1855e725"
 dependencies = [
  "unicode-ident",
 ]
@@ -2220,9 +2220,9 @@ dependencies = [
 
 [[package]]
 name = "xiv-emote-parser"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cf1025cd3bceec8fae3662f121e480ddde514fe284bfe501a0c4b568abe2240"
+checksum = "cf799e99c3c9a491cd9eebe42cc6ded5b6fa3a24308f239ef8c40b78635d241a"
 dependencies = [
  "log",
  "pest",
@@ -2235,4 +2235,5 @@ dependencies = [
  "strum",
  "strum_macros",
  "thiserror",
+ "tokio",
 ]
