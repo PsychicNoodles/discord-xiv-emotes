@@ -316,7 +316,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "discord-xiv-emotes"
+name = "discord-xiv-emotes-00000000-0000-0000-0000-000000000000"
 version = "0.1.0"
 dependencies = [
  "dotenv",
