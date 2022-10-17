@@ -2,11 +2,14 @@
 name = "discord-xiv-emotes"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["Mattori Birnbaum <mattori.birnbaum@gmail.com>"]
+description = "A Discord bot that responds with emote log messages from FFXIV"
+repository = "https://github.com/PsychicNoodles/discord-xiv-emotes"
+license = "GNU GPLv3"
+keywords = ["discord", "bot"]
 
 [dependencies]
-xiv-emote-parser = { git = "https://github.com/PsychicNoodles/xiv-emote-parser", features = ["xivapi"] }
+xiv-emote-parser = { version = "0.1", features = ["xivapi"] }
 serenity = { version = "0.11.5", default-features = false, features = ["client", "gateway", "model", "cache", "utils", "rustls_backend", "collector"] }
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread"] }
 dotenv = "0.15"
