@@ -41,8 +41,8 @@ pub enum HandlerError {
     UnrecognizedEmote(String),
     #[error("Unrecognized command ({0})")]
     UnrecognizedCommand(String),
-    #[error("Invalid format ({0})")]
-    InvalidFormat(String),
+    #[error("Command was empty")]
+    EmptyCommand,
     #[error("Internal error, could not retrieve emote data")]
     EmoteData(#[from] LogMessageRepositoryError),
     #[error("Internal error, could not build response")]
@@ -121,14 +121,17 @@ async fn process_input(
         return Ok(());
     }
 
-    let (cmd, mention) = match mparts[..] {
-        [e, m] => Ok((["/", e].concat(), Some(m))),
-        [e] => Ok((["/", e].concat(), None)),
-        _ => Err(HandlerError::InvalidFormat(mparts.join(" "))),
-    }?;
-    trace!("parsed command and mention: {:?} {:?}", cmd, mention);
+    let (emote, mention) = mparts.split_first().ok_or(HandlerError::EmptyCommand)?;
+    let emote = ["/", emote].concat();
+    let mention = if mention.is_empty() {
+        None
+    } else {
+        Some(mention.join(" "))
+    };
 
-    match (&cmd, mention) {
+    trace!("parsed command and mention: {:?} {:?}", emote, mention);
+
+    match (&emote, mention) {
         (emote, Some(mention)) if log_message_repo.contains_emote(emote) => {
             debug!("emote with mention");
             let messages = log_message_repo.messages(emote)?;
