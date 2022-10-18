@@ -9,7 +9,7 @@ use thiserror::Error;
 use serenity::{
     async_trait,
     model::{
-        prelude::{command::Command, interaction::Interaction, ChannelId, Message, Ready, Role},
+        prelude::{command::Command, interaction::Interaction, ChannelId, Message, Ready},
         user::User,
     },
     prelude::{Context, EventHandler, GatewayIntents},
@@ -89,29 +89,6 @@ async fn check_other_cmd(
     }
 }
 
-#[derive(Debug, Clone)]
-enum Target {
-    User(User),
-    Role(Role),
-    Plain(String),
-}
-
-impl Default for Target {
-    fn default() -> Self {
-        Target::Plain(UNTARGETED_TARGET.name.into_owned())
-    }
-}
-
-impl ToString for Target {
-    fn to_string(&self) -> String {
-        match self {
-            Target::User(u) => u.name.clone(),
-            Target::Role(r) => r.name.clone(),
-            Target::Plain(s) => s.to_string(),
-        }
-    }
-}
-
 async fn process_input(
     mparts: &[&str],
     log_message_repo: &LogMessageRepository,
@@ -147,19 +124,14 @@ async fn process_input(
                 false,
             );
             trace!("message origin: {:?}", origin);
-            let target_name = match determine_mention(msg, context).await {
-                Some(n) => n,
-                None => Target::Plain(mention.to_string()),
-            };
-            let target =
-                Character::new_from_string(target_name.to_string(), Gender::Male, true, false);
+            let target = Character::new_from_string(mention.to_string(), Gender::Male, true, false);
             trace!("message target: {:?}", target);
             let answers = LogMessageAnswers::new(origin, target)?;
             let condition_texts = extract_condition_texts(&messages.en.targeted)?;
             send_emote(
                 condition_texts,
                 answers,
-                Some(target_name),
+                Some(mention),
                 context,
                 SendTargetType::Message(msg),
             )
@@ -195,25 +167,25 @@ async fn process_input(
     }
 }
 
-async fn determine_mention(msg: &Message, context: &Context) -> Option<Target> {
-    if let Some(user) = msg.mentions.first() {
-        trace!("mention appears to be a user");
-        Some(Target::User(user.clone()))
-    } else if let Some(role_id) = msg.mention_roles.first() {
-        trace!("mention appears to be a role");
-        msg.guild(context.cache.clone())?
-            .roles
-            .get(role_id)
-            .cloned()
-            .map(Target::Role)
-    } else if msg.mention_everyone {
-        trace!("mention appears to be everyone");
-        Some(Target::Plain("everyone in the vicinity".to_string()))
-    } else {
-        trace!("no mention found");
-        None
-    }
-}
+// async fn determine_mention(msg: &Message, context: &Context) -> Option<Target> {
+//     if let Some(user) = msg.mentions.first() {
+//         trace!("mention appears to be a user");
+//         Some(Target::User(user.clone()))
+//     } else if let Some(role_id) = msg.mention_roles.first() {
+//         trace!("mention appears to be a role");
+//         msg.guild(context.cache.clone())?
+//             .roles
+//             .get(role_id)
+//             .cloned()
+//             .map(Target::Role)
+//     } else if msg.mention_everyone {
+//         trace!("mention appears to be everyone");
+//         Some(Target::Plain("everyone in the vicinity".to_string()))
+//     } else {
+//         trace!("no mention found");
+//         None
+//     }
+// }
 
 #[derive(Debug, Clone, Copy)]
 enum SendTargetType<'a> {
@@ -227,7 +199,7 @@ enum SendTargetType<'a> {
 async fn send_emote<'a>(
     condition_texts: ConditionTexts,
     answers: impl Answers,
-    target_name: Option<Target>,
+    target_name: Option<String>,
     context: &Context,
     target_type: SendTargetType<'a>,
 ) -> Result<(), HandlerError> {
@@ -246,11 +218,7 @@ async fn send_emote<'a>(
                     DynamicText::NpcTargetName
                     | DynamicText::PlayerTargetNameEn
                     | DynamicText::PlayerTargetNameJp => match &target_name {
-                        Some(n) => match n {
-                            Target::User(u) => msg_builder.mention(u),
-                            Target::Role(r) => msg_builder.mention(r),
-                            Target::Plain(p) => msg_builder.push(p),
-                        },
+                        Some(n) => msg_builder.push(n),
                         None => return Some(HandlerError::TargetNone),
                     },
                 },
@@ -281,8 +249,7 @@ impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
         trace!("incoming message: {:?}", msg);
         if !msg.is_own(&context) && msg.content.starts_with(PREFIX) {
-            let content_safe = msg.content_safe(&context);
-            let mut mparts: Vec<_> = content_safe.split_whitespace().collect();
+            let mut mparts: Vec<_> = msg.content.split_whitespace().collect();
             if let Some(first) = mparts.get_mut(0) {
                 *first = first.get(1..).unwrap_or(first);
             }

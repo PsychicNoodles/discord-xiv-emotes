@@ -11,8 +11,9 @@ use serenity::{
             interaction::{
                 application_command::ApplicationCommandInteraction, InteractionResponseType,
             },
-            Message,
+            Message, Role,
         },
+        user::User,
     },
     prelude::Context,
 };
@@ -26,9 +27,7 @@ use xiv_emote_parser::{
     repository::LogMessageRepository,
 };
 
-use crate::{
-    send_emote, HandlerError, SendTargetType, Target, INTERACTION_TIMEOUT, UNTARGETED_TARGET,
-};
+use crate::{send_emote, HandlerError, SendTargetType, INTERACTION_TIMEOUT, UNTARGETED_TARGET};
 
 pub const CHAT_INPUT_COMMAND_NAME: &str = "emote";
 
@@ -85,6 +84,29 @@ impl TryFrom<&str> for Ids {
             "next_emotes" => Ok(Ids::EmoteNextBtn),
             "submit" => Ok(Ids::Submit),
             s => Err(InvalidComponentId(s.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Target {
+    User(User),
+    Role(Role),
+    Plain(String),
+}
+
+impl Default for Target {
+    fn default() -> Self {
+        Target::Plain(UNTARGETED_TARGET.name.into_owned())
+    }
+}
+
+impl ToString for Target {
+    fn to_string(&self) -> String {
+        match self {
+            Target::User(u) => u.name.clone(),
+            Target::Role(r) => r.name.clone(),
+            Target::Plain(s) => s.to_string(),
         }
     }
 }
@@ -258,7 +280,7 @@ async fn emote_component_interaction(
         send_emote(
             condition_texts,
             answers,
-            res.target,
+            res.target.map(|t| t.to_string()),
             context,
             SendTargetType::Channel {
                 channel: &cmd.channel_id,
