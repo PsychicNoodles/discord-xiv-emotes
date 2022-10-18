@@ -24,5 +24,5 @@ thiserror = "1.0"
 log = "0.4"
 pretty_env_logger = "0.4"
 futures = "0.3"
-shuttle-secrets = "0.6"
-shuttle-service = { version = "0.6", features = ["bot-serenity"] }
+shuttle-secrets = "0.7"
+shuttle-service = { version = "0.7", features = ["bot-serenity"] }
