@@ -49,6 +49,8 @@ pub enum HandlerError {
     Answers(#[from] LogMessageAnswersError),
     #[error("Internal error, could not build response")]
     Extract(#[from] EmoteTextError),
+    #[error("Internal error, could not build response")]
+    TargetNone,
     #[error("Failed to send message")]
     Send(#[from] serenity::Error),
     #[error("Expected to be in a guild channel")]
@@ -161,7 +163,7 @@ async fn process_input(
                 context,
                 SendTargetType::Message(msg),
             )
-            .await;
+            .await?;
             Ok(())
         }
         (emote, None) if log_message_repo.contains_emote(emote) => {
@@ -186,7 +188,7 @@ async fn process_input(
                 context,
                 SendTargetType::Message(msg),
             )
-            .await;
+            .await?;
             Ok(())
         }
         (emote, _) => Err(HandlerError::UnrecognizedEmote(emote.to_string())),
@@ -228,30 +230,39 @@ async fn send_emote<'a>(
     target_name: Option<Target>,
     context: &Context,
     target_type: SendTargetType<'a>,
-) {
-    let target = target_name.unwrap_or_default();
+) -> Result<(), HandlerError> {
     let mut msg_builder = MessageBuilder::new();
     let author = match target_type {
         SendTargetType::Message(m) => &m.author,
         SendTargetType::Channel { author, .. } => author,
     };
-    condition_texts.for_each_texts(&answers, |text| {
-        match text {
-            Text::Dynamic(d) => match d {
-                DynamicText::NpcOriginName
-                | DynamicText::PlayerOriginNameEn
-                | DynamicText::PlayerOriginNameJp => msg_builder.mention(author),
-                DynamicText::NpcTargetName
-                | DynamicText::PlayerTargetNameEn
-                | DynamicText::PlayerTargetNameJp => match &target {
-                    Target::User(u) => msg_builder.mention(u),
-                    Target::Role(r) => msg_builder.mention(r),
-                    Target::Plain(s) => msg_builder.push(s),
+    let mut errs: Vec<_> = condition_texts
+        .map_texts_mut(&answers, |text| {
+            match text {
+                Text::Dynamic(d) => match d {
+                    DynamicText::NpcOriginName
+                    | DynamicText::PlayerOriginNameEn
+                    | DynamicText::PlayerOriginNameJp => msg_builder.mention(author),
+                    DynamicText::NpcTargetName
+                    | DynamicText::PlayerTargetNameEn
+                    | DynamicText::PlayerTargetNameJp => match &target_name {
+                        Some(n) => match n {
+                            Target::User(u) => msg_builder.mention(u),
+                            Target::Role(r) => msg_builder.mention(r),
+                            Target::Plain(p) => msg_builder.push(p),
+                        },
+                        None => return Some(HandlerError::TargetNone),
+                    },
                 },
-            },
-            Text::Static(s) => msg_builder.push(s),
-        };
-    });
+                Text::Static(s) => msg_builder.push(s),
+            };
+            None
+        })
+        .collect();
+    if !errs.is_empty() {
+        error!("errors during text processing: {:?}", errs);
+        return Err(errs.remove(0));
+    }
     if let Err(e) = match target_type {
         SendTargetType::Message(msg) => msg.reply(context, msg_builder.build()).await,
         SendTargetType::Channel { channel, .. } => {
@@ -262,6 +273,7 @@ async fn send_emote<'a>(
     } {
         error!("failed to send emote message: {:?}", e);
     }
+    Ok(())
 }
 
 #[async_trait]
@@ -269,7 +281,11 @@ impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
         trace!("incoming message: {:?}", msg);
         if !msg.is_own(&context) && msg.content.starts_with(PREFIX) {
-            let mparts: Vec<_> = msg.content[1..].split_whitespace().collect();
+            let content_safe = msg.content_safe(&context);
+            let mut mparts: Vec<_> = content_safe.split_whitespace().collect();
+            if let Some(first) = mparts.get_mut(0) {
+                *first = first.get(1..).unwrap_or(first);
+            }
             debug!("message parts: {:?}", mparts);
             match process_input(&mparts, &self.log_message_repo, &context, &msg).await {
                 Ok(v) => v,

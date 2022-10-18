@@ -265,7 +265,7 @@ async fn emote_component_interaction(
                 author: &cmd.user,
             },
         )
-        .await;
+        .await?;
     } else {
         trace!("no message target");
         let condition_texts = extract_condition_texts(&messages.en.untargeted)?;
@@ -280,7 +280,7 @@ async fn emote_component_interaction(
                 author: &cmd.user,
             },
         )
-        .await;
+        .await?;
     };
 
     Ok(())
