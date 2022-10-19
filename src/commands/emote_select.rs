@@ -29,7 +29,7 @@ use xiv_emote_parser::{
 
 use crate::{send_emote, HandlerError, SendTargetType, INTERACTION_TIMEOUT, UNTARGETED_TARGET};
 
-pub const CHAT_INPUT_COMMAND_NAME: &str = "emote";
+use super::Commands;
 
 const INPUT_TARGET_MODAL: &str = "input_target_modal";
 const INPUT_TARGET_COMPONENT: &str = "input_target_input";
@@ -515,7 +515,7 @@ pub async fn handle_chat_input(
 }
 
 pub fn register_chat_input(cmd: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
-    cmd.name(CHAT_INPUT_COMMAND_NAME)
+    cmd.name(Commands::EmoteSelect)
         .kind(CommandType::ChatInput)
         .description("Select an emote and optionally a target user")
         .dm_permission(true)

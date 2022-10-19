@@ -29,3 +29,5 @@ futures = "0.3"
 # shuttle-shared-db = { version = "0.7", features = ["postgres"] }
 sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "postgres", "time"] }
 time = "0.3"
+strum = "0.24"
+strum_macros = "0.24"

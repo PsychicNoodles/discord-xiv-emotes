@@ -265,6 +265,8 @@ dependencies = [
  "pretty_env_logger",
  "serenity",
  "sqlx",
+ "strum",
+ "strum_macros",
  "thiserror",
  "time",
  "tokio",

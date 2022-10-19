@@ -1,11 +1,11 @@
+mod commands;
 mod db;
-mod emote_select;
 
 use db::Db;
-use emote_select::CHAT_INPUT_COMMAND_NAME;
 use log::*;
 use sqlx::PgPool;
 use std::time::Duration;
+use strum::IntoEnumIterator;
 use thiserror::Error;
 
 use serenity::{
@@ -28,7 +28,7 @@ use xiv_emote_parser::{
     repository::{LogMessageRepository, LogMessageRepositoryError},
 };
 
-use crate::db::DbUser;
+use crate::{commands::Commands, db::DbUser};
 
 struct Handler {
     log_message_repo: LogMessageRepository,
@@ -46,7 +46,7 @@ pub enum HandlerError {
     #[error("Unrecognized emote ({0})")]
     UnrecognizedEmote(String),
     #[error("Unrecognized command ({0})")]
-    UnrecognizedCommand(String),
+    UnrecognizedCommand(#[from] strum::ParseError),
     #[error("Command was empty")]
     EmptyCommand,
     #[error("Internal error, could not retrieve emote data")]
@@ -165,6 +165,7 @@ async fn process_input(
         .map(DbUser::gender)
         .cloned()
         .unwrap_or_default();
+    trace!("language is {:?}, gender is {:?}", language, gender);
 
     match (&emote, mention) {
         (emote, Some(mention)) if log_message_repo.contains_emote(emote) => {
@@ -331,11 +332,19 @@ impl EventHandler for Handler {
         if let Interaction::ApplicationCommand(cmd) = interaction {
             trace!("incoming application command: {:?}", cmd);
 
-            if let Err(err) = match cmd.data.name.as_str() {
-                CHAT_INPUT_COMMAND_NAME => {
-                    emote_select::handle_chat_input(&cmd, &self.log_message_repo, &context).await
+            if let Err(err) = match Commands::try_from(cmd.data.name.as_str()) {
+                Ok(Commands::EmoteSelect) => {
+                    commands::emote_select::handle_chat_input(
+                        &cmd,
+                        &self.log_message_repo,
+                        &context,
+                    )
+                    .await
                 }
-                s => Err(HandlerError::UnrecognizedCommand(s.to_string())),
+                Ok(Commands::UserSettings) => {
+                    commands::user_settings::handle_chat_input(&cmd, &self.db, &context).await
+                }
+                Err(e) => Err(HandlerError::UnrecognizedCommand(e)),
             } {
                 error!("error during interaction processing: {:?}", err);
                 if let Err(e) = cmd
@@ -356,8 +365,11 @@ impl EventHandler for Handler {
     async fn ready(&self, context: Context, ready: Ready) {
         info!("{} is connected", ready.user.name);
 
-        if let Err(err) = Command::set_global_application_commands(&context, |cmds| {
-            cmds.create_application_command(emote_select::register_chat_input)
+        if let Err(err) = Command::set_global_application_commands(&context, |create| {
+            Commands::iter().for_each(|cmd| {
+                create.create_application_command(cmd.register());
+            });
+            create
         })
         .await
         {

@@ -1,6 +1,7 @@
 use log::*;
 use sqlx::PgPool;
 use thiserror::Error;
+use time::OffsetDateTime;
 use xiv_emote_parser::{
     log_message::condition::Gender,
     repository::{EmoteData, LogMessagePair},
@@ -58,6 +59,18 @@ pub struct DbUser {
     pub update_tm: time::OffsetDateTime,
 }
 
+impl Default for DbUser {
+    fn default() -> Self {
+        DbUser {
+            discord_id: String::default(),
+            language: DbUserLanguage::default(),
+            gender: DbUserGender::default(),
+            insert_tm: OffsetDateTime::now_utc(),
+            update_tm: OffsetDateTime::now_utc(),
+        }
+    }
+}
+
 impl DbUser {
     pub fn discord_id(&self) -> &String {
         &self.discord_id
@@ -78,28 +91,30 @@ pub struct Db(pub PgPool);
 impl Db {
     pub async fn insert_user(
         &self,
-        discord_id: impl AsRef<str>,
+        discord_id: String,
         language: DbUserLanguage,
         gender: DbUserGender,
     ) -> Result<()> {
+        debug!("inserting user {} {:?} {:?}", discord_id, language, gender);
+        let user = DbUser {
+            discord_id,
+            language,
+            gender,
+            ..Default::default()
+        };
         sqlx::query!(
             "
             INSERT INTO users (discord_id, language, gender, insert_tm, update_tm)
-            VALUES ($1, $2, $3, $4, $4)
+            VALUES ($1, $2, $3, $4, $5)
         ",
-            discord_id.as_ref(),
-            language as i32,
-            gender as i32,
-            time::OffsetDateTime::now_utc()
+            user.discord_id,
+            user.language as i32,
+            user.gender as i32,
+            user.insert_tm,
+            user.update_tm
         )
         .execute(&self.0)
         .await?;
-        debug!(
-            "inserted user {} {:?} {:?}",
-            discord_id.as_ref(),
-            language,
-            gender
-        );
         Ok(())
     }
 
