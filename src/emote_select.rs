@@ -11,7 +11,7 @@ use serenity::{
             interaction::{
                 application_command::ApplicationCommandInteraction, InteractionResponseType,
             },
-            Message, Role,
+            Message,
         },
         user::User,
     },
@@ -91,7 +91,7 @@ impl TryFrom<&str> for Ids {
 #[derive(Debug, Clone)]
 enum Target {
     User(User),
-    Role(Role),
+    // Role(Role),
     Plain(String),
 }
 
@@ -105,7 +105,7 @@ impl ToString for Target {
     fn to_string(&self) -> String {
         match self {
             Target::User(u) => u.name.clone(),
-            Target::Role(r) => r.name.clone(),
+            // Target::Role(r) => r.name.clone(),
             Target::Plain(s) => s.to_string(),
         }
     }
