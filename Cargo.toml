@@ -19,7 +19,7 @@ path = "src/bin.rs"
 xiv-emote-parser = { version = "0.1", features = ["xivapi"] }
 serenity = { version = "0.11.5", default-features = false, features = ["client", "gateway", "model", "cache", "utils", "rustls_backend", "collector"] }
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread"] }
-dotenv = "0.15"
+dotenvy = "0.15"
 thiserror = "1.0"
 log = "0.4"
 pretty_env_logger = "0.4"

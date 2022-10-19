@@ -1,7 +1,7 @@
 use std::env;
 
 use discord_xiv_emotes::setup_client;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use log::info;
 use sqlx::PgPool;
 
