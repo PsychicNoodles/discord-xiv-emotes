@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use serenity::{
     async_trait,
+    constants::MESSAGE_CODE_LIMIT,
     model::{
         prelude::{command::Command, interaction::Interaction, ChannelId, Message, Ready},
         user::User,
@@ -63,6 +64,38 @@ pub enum HandlerError {
     UnexpectedData,
 }
 
+pub fn split_by_max_message_len(
+    prefix: impl AsRef<str>,
+    mut body: impl Iterator<Item = String>,
+) -> Vec<String> {
+    let mut res = vec![];
+    let mut msg = if let Some(item) = body.next() {
+        item
+    } else {
+        return res;
+    };
+    while let Some(item) = body.next() {
+        msg.push_str(", ");
+
+        // todo count with codepoints rather than String len?
+        if prefix.as_ref().len() + " (xx/xx): ".len() + msg.len() + item.len() + ", ".len()
+            > MESSAGE_CODE_LIMIT
+        {
+            res.push(msg);
+            msg = String::new();
+        }
+
+        msg.push_str(&item);
+    }
+    res.push(msg);
+    let count = res.len();
+    res.iter_mut().enumerate().for_each(|(i, m)| {
+        m.insert_str(0, &format!("{} ({}/{}): ", prefix.as_ref(), i + 1, count));
+    });
+    trace!("res: {:?}", res);
+    res
+}
+
 async fn check_other_cmd(
     mparts: &[&str],
     log_message_repo: &LogMessageRepository,
@@ -73,11 +106,14 @@ async fn check_other_cmd(
         [_cmd] if _cmd == "emotes" => {
             trace!("emotes command");
             let emote_list: Vec<_> = log_message_repo.emote_list_by_id().cloned().collect();
-            msg.reply(
-                context,
-                format!("List of emotes: {}", emote_list.join(", ")),
-            )
-            .await?;
+
+            const EMOTE_LIST_PREFIX: &str = "List of emotes";
+            let results = split_by_max_message_len(EMOTE_LIST_PREFIX, emote_list.into_iter());
+            debug!("emotes response is {} messages long", results.len());
+
+            for res in results {
+                msg.reply(context, res).await?;
+            }
             Ok(true)
         }
         [_cmd] if _cmd == "help" => {
