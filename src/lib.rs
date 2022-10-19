@@ -1,6 +1,7 @@
 mod db;
 mod emote_select;
 
+use db::Db;
 use emote_select::CHAT_INPUT_COMMAND_NAME;
 use log::*;
 use sqlx::PgPool;
@@ -27,9 +28,11 @@ use xiv_emote_parser::{
     repository::{LogMessageRepository, LogMessageRepositoryError},
 };
 
+use crate::db::DbUser;
+
 struct Handler {
     log_message_repo: LogMessageRepository,
-    db: PgPool,
+    db: Db,
 }
 
 // untargeted messages shouldn't reference target character at all, but just in case
@@ -54,6 +57,8 @@ pub enum HandlerError {
     Extract(#[from] EmoteTextError),
     #[error("Internal error, could not build response")]
     TargetNone,
+    #[error("Internal error, could not build response")]
+    Db(#[from] db::DbError),
     #[error("Failed to send message")]
     Send(#[from] serenity::Error),
     #[error("Expected to be in a guild channel")]
@@ -130,6 +135,7 @@ async fn check_other_cmd(
 async fn process_input(
     mparts: &[&str],
     log_message_repo: &LogMessageRepository,
+    db: &Db,
     context: &Context,
     msg: &Message,
 ) -> Result<(), HandlerError> {
@@ -148,16 +154,27 @@ async fn process_input(
 
     trace!("parsed command and mention: {:?} {:?}", emote, mention);
 
+    let user = db.find_user(msg.author.id.to_string()).await?;
+    let language = user
+        .as_ref()
+        .map(DbUser::language)
+        .cloned()
+        .unwrap_or_default();
+    let gender = user
+        .as_ref()
+        .map(DbUser::gender)
+        .cloned()
+        .unwrap_or_default();
+
     match (&emote, mention) {
         (emote, Some(mention)) if log_message_repo.contains_emote(emote) => {
             debug!("emote with mention");
             let messages = log_message_repo.messages(emote)?;
-            // todo allow setting gender
             let origin = Character::new_from_string(
                 msg.author_nick(&context)
                     .await
                     .unwrap_or_else(|| msg.author.name.clone()),
-                Gender::Male,
+                gender.into(),
                 true,
                 false,
             );
@@ -165,7 +182,8 @@ async fn process_input(
             let target = Character::new_from_string(mention.to_string(), Gender::Male, true, false);
             trace!("message target: {:?}", target);
             let answers = LogMessageAnswers::new(origin, target)?;
-            let condition_texts = extract_condition_texts(&messages.en.targeted)?;
+            let condition_texts =
+                extract_condition_texts(&language.with_emote_data(&messages).targeted)?;
             send_emote(
                 condition_texts,
                 answers,
@@ -179,18 +197,18 @@ async fn process_input(
         (emote, None) if log_message_repo.contains_emote(emote) => {
             debug!("emote without mention");
             let messages = log_message_repo.messages(emote)?;
-            // todo allow setting gender
             let origin = Character::new_from_string(
                 msg.author_nick(&context)
                     .await
                     .unwrap_or_else(|| msg.author.name.clone()),
-                Gender::Male,
+                gender.into(),
                 true,
                 false,
             );
             trace!("message origin: {:?}", origin);
             let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
-            let condition_texts = extract_condition_texts(&messages.en.untargeted)?;
+            let condition_texts =
+                extract_condition_texts(&language.with_emote_data(&messages).untargeted)?;
             send_emote(
                 condition_texts,
                 answers,
@@ -292,7 +310,7 @@ impl EventHandler for Handler {
                 *first = first.get(1..).unwrap_or(first);
             }
             debug!("message parts: {:?}", mparts);
-            match process_input(&mparts, &self.log_message_repo, &context, &msg).await {
+            match process_input(&mparts, &self.log_message_repo, &self.db, &context, &msg).await {
                 Ok(v) => v,
                 Err(err) => {
                     error!("error during message processing: {:?}", err);
@@ -348,7 +366,7 @@ impl EventHandler for Handler {
     }
 }
 
-pub async fn setup_client(token: String, db: PgPool) -> Client {
+pub async fn setup_client(token: String, pool: PgPool) -> Client {
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT
@@ -363,7 +381,7 @@ pub async fn setup_client(token: String, db: PgPool) -> Client {
     Client::builder(&token, intents)
         .event_handler(Handler {
             log_message_repo,
-            db,
+            db: Db(pool),
         })
         .await
         .expect("error creating client")
