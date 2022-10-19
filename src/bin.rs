@@ -7,8 +7,8 @@ use sqlx::PgPool;
 
 #[tokio::main]
 async fn main() {
-    pretty_env_logger::init();
     dotenv().ok();
+    pretty_env_logger::init();
     let token = env::var("DISCORD_TOKEN").expect("expected DISCORD_TOKEN env var");
     let db_url = env::var("DATABASE_URL").expect("expected DATABASE_URL env var");
     let pool = PgPool::connect(&db_url)
