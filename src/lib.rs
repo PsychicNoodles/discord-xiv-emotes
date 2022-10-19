@@ -1,8 +1,9 @@
+mod db;
 mod emote_select;
 
 use emote_select::CHAT_INPUT_COMMAND_NAME;
 use log::*;
-use shuttle_secrets::SecretStore;
+use sqlx::PgPool;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -28,6 +29,7 @@ use xiv_emote_parser::{
 
 struct Handler {
     log_message_repo: LogMessageRepository,
+    db: PgPool,
 }
 
 // untargeted messages shouldn't reference target character at all, but just in case
@@ -346,7 +348,7 @@ impl EventHandler for Handler {
     }
 }
 
-pub async fn setup_client(token: String) -> Client {
+pub async fn setup_client(token: String, db: PgPool) -> Client {
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT
@@ -359,18 +361,28 @@ pub async fn setup_client(token: String) -> Client {
         log_message_repo.emote_list_by_id().collect::<Vec<_>>()
     );
     Client::builder(&token, intents)
-        .event_handler(Handler { log_message_repo })
+        .event_handler(Handler {
+            log_message_repo,
+            db,
+        })
         .await
         .expect("error creating client")
 }
 
-#[shuttle_service::main]
-async fn shuttle_main(
-    #[shuttle_secrets::Secrets] secret_store: SecretStore,
-) -> shuttle_service::ShuttleSerenity {
-    let token = secret_store
-        .get("DISCORD_TOKEN")
-        .expect("could not find discord token");
-    let client = setup_client(token).await;
-    Ok(client)
-}
+// #[shuttle_service::main]
+// async fn shuttle_main(
+//     #[shuttle_secrets::Secrets] secret_store: SecretStore,
+//     #[shuttle_shared_db::Postgres] pool: PgPool,
+// ) -> shuttle_service::ShuttleSerenity {
+//     let token = secret_store
+//         .get("DISCORD_TOKEN")
+//         .expect("could not find discord token");
+
+//     sqlx::migrate!()
+//         .run(&pool)
+//         .await
+//         .expect("could not migrate db");
+
+//     let client = setup_client(token).await;
+//     Ok(client)
+// }

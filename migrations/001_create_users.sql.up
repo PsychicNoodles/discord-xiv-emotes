@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS users (
+	user_id bigserial PRIMARY KEY,
+	discord_id BYTEA NOT NULL UNIQUE,
+	language i32 NOT NULL,
+	gender i32 NOT NULL,
+	insert_tm timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	update_tm timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
