@@ -130,6 +130,37 @@ impl DbUser {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct DbUserOpt(Option<DbUser>);
+
+impl From<DbUserOpt> for Option<DbUser> {
+    fn from(o: DbUserOpt) -> Self {
+        o.into_inner()
+    }
+}
+
+impl DbUserOpt {
+    pub fn into_inner(self) -> Option<DbUser> {
+        self.0
+    }
+
+    pub fn language(&self) -> DbUserLanguage {
+        self.0
+            .as_ref()
+            .map(DbUser::language)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn gender(&self) -> DbUserGender {
+        self.0
+            .as_ref()
+            .map(DbUser::gender)
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
 #[derive(Debug)]
 pub struct Db(pub PgPool);
 
@@ -165,8 +196,8 @@ impl Db {
         Ok(())
     }
 
-    pub async fn find_user(&self, discord_id: impl AsRef<str>) -> Result<Option<DbUser>> {
-        let discord_id = discord_id.as_ref();
+    pub async fn find_user(&self, discord_id: impl ToString) -> Result<DbUserOpt> {
+        let discord_id = discord_id.to_string();
         debug!("checking for user {:?}", discord_id);
         let res = sqlx::query_as!(
             DbUser,
@@ -185,6 +216,6 @@ impl Db {
         .fetch_optional(&self.0)
         .await?;
         debug!("user lookup: {:?}", res);
-        Ok(res)
+        Ok(DbUserOpt(res))
     }
 }

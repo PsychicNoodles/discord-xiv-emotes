@@ -19,13 +19,10 @@ use serenity::{
     prelude::Context,
 };
 use thiserror::Error;
-use xiv_emote_parser::{
-    log_message::{
-        condition::{Character, Gender},
-        parser::extract_condition_texts,
-        LogMessageAnswers,
-    },
-    repository::LogMessageRepository,
+use xiv_emote_parser::log_message::{
+    condition::{Character, Gender},
+    parser::extract_condition_texts,
+    LogMessageAnswers,
 };
 
 use crate::{send_emote, HandlerError, SendTargetType, INTERACTION_TIMEOUT, UNTARGETED_TARGET};
@@ -234,79 +231,6 @@ fn interaction_response_content(emote_list_len: usize, emote_list_offset: Option
             + 1,
         emote_list_len / EMOTE_LIST_OFFSET_STEP + 1
     )
-}
-
-async fn emote_component_interaction(
-    cmd: &ApplicationCommandInteraction,
-    log_message_repo: &LogMessageRepository,
-    context: &Context,
-    members: Vec<Member>,
-) -> Result<(), HandlerError> {
-    trace!("creating interaction response");
-    let emote_list: Vec<_> = log_message_repo.emote_list_by_id().collect();
-    cmd.create_interaction_response(context, |res| {
-        create_response(
-            res,
-            InteractionResponseType::ChannelMessageWithSource,
-            &emote_list,
-            None,
-            None,
-            None,
-            &members,
-        )
-    })
-    .await?;
-    let msg = cmd.get_interaction_response(context).await?;
-    trace!("awaiting interactions");
-    let res = handle_interactions(context, &msg, &emote_list, members).await?;
-
-    let messages = log_message_repo.messages(&res.emote)?;
-
-    // todo allow setting gender
-    let origin = Character::new_from_string(
-        cmd.user
-            .nick_in(&context, cmd.guild_id.ok_or(HandlerError::NotGuild)?)
-            .await
-            .unwrap_or_else(|| cmd.user.name.clone()),
-        Gender::Male,
-        true,
-        false,
-    );
-    trace!("message origin: {:?}", origin);
-    if let Some(target_name) = &res.target {
-        let target = Character::new_from_string(target_name.to_string(), Gender::Male, true, false);
-        trace!("message target: {:?}", target);
-        let condition_texts = extract_condition_texts(&messages.en.targeted)?;
-        let answers = LogMessageAnswers::new(origin, target)?;
-        send_emote(
-            condition_texts,
-            answers,
-            res.target.map(|t| t.to_string()),
-            context,
-            SendTargetType::Channel {
-                channel: &cmd.channel_id,
-                author: &cmd.user,
-            },
-        )
-        .await?;
-    } else {
-        trace!("no message target");
-        let condition_texts = extract_condition_texts(&messages.en.untargeted)?;
-        let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
-        send_emote(
-            condition_texts,
-            answers,
-            None,
-            context,
-            SendTargetType::Channel {
-                channel: &cmd.channel_id,
-                author: &cmd.user,
-            },
-        )
-        .await?;
-    };
-
-    Ok(())
 }
 
 fn create_response<'a, 'b>(
@@ -532,7 +456,78 @@ impl AppCmd for EmoteSelectCmd {
             .members(context, None, None)
             .await?;
         trace!("potential members: {:?}", members);
-        emote_component_interaction(cmd, &handler.log_message_repo, context, members).await?;
+        let log_message_repo = &handler.log_message_repo;
+        trace!("creating interaction response");
+        let emote_list: Vec<_> = log_message_repo.emote_list_by_id().collect();
+        cmd.create_interaction_response(context, |res| {
+            create_response(
+                res,
+                InteractionResponseType::ChannelMessageWithSource,
+                &emote_list,
+                None,
+                None,
+                None,
+                &members,
+            )
+        })
+        .await?;
+
+        let msg = cmd.get_interaction_response(context).await?;
+        trace!("awaiting interactions");
+        let res = handle_interactions(context, &msg, &emote_list, members).await?;
+
+        let messages = log_message_repo.messages(&res.emote)?;
+
+        let user = handler.db.find_user(cmd.user.id).await?;
+        let language = user.language();
+        let gender = user.gender();
+
+        let origin = Character::new_from_string(
+            cmd.user
+                .nick_in(&context, cmd.guild_id.ok_or(HandlerError::NotGuild)?)
+                .await
+                .unwrap_or_else(|| cmd.user.name.clone()),
+            gender.into(),
+            true,
+            false,
+        );
+        trace!("message origin: {:?}", origin);
+        if let Some(target_name) = &res.target {
+            let target =
+                Character::new_from_string(target_name.to_string(), Gender::Male, true, false);
+            trace!("message target: {:?}", target);
+            let condition_texts =
+                extract_condition_texts(&language.with_emote_data(&messages).targeted)?;
+            let answers = LogMessageAnswers::new(origin, target)?;
+            send_emote(
+                condition_texts,
+                answers,
+                res.target.map(|t| t.to_string()),
+                context,
+                SendTargetType::Channel {
+                    channel: &cmd.channel_id,
+                    author: &cmd.user,
+                },
+            )
+            .await?;
+        } else {
+            trace!("no message target");
+            let condition_texts =
+                extract_condition_texts(&language.with_emote_data(&messages).untargeted)?;
+            let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
+            send_emote(
+                condition_texts,
+                answers,
+                None,
+                context,
+                SendTargetType::Channel {
+                    channel: &cmd.channel_id,
+                    author: &cmd.user,
+                },
+            )
+            .await?;
+        };
+
         Ok(())
     }
 }

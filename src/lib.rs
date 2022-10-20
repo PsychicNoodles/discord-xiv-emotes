@@ -27,7 +27,7 @@ use xiv_emote_parser::{
     repository::{LogMessageRepository, LogMessageRepositoryError},
 };
 
-use crate::{commands::Commands, db::DbUser};
+use crate::commands::Commands;
 
 pub struct Handler {
     log_message_repo: LogMessageRepository,
@@ -153,17 +153,9 @@ async fn process_input(
 
     trace!("parsed command and mention: {:?} {:?}", emote, mention);
 
-    let user = db.find_user(msg.author.id.to_string()).await?;
-    let language = user
-        .as_ref()
-        .map(DbUser::language)
-        .cloned()
-        .unwrap_or_default();
-    let gender = user
-        .as_ref()
-        .map(DbUser::gender)
-        .cloned()
-        .unwrap_or_default();
+    let user = db.find_user(msg.author.id).await?;
+    let language = user.language();
+    let gender = user.gender();
     trace!("language is {:?}, gender is {:?}", language, gender);
 
     match (&emote, mention) {
