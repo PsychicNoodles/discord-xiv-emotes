@@ -324,7 +324,6 @@ async fn handle_interactions(
                                     )
                                 })
                                 .await?;
-                            break;
                         }
                         cmp => {
                             error!("modal component was not an input text: {:?}", cmp);
