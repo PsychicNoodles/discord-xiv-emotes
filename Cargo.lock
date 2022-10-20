@@ -259,6 +259,7 @@ dependencies = [
 name = "discord-xiv-emotes"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "dotenvy",
  "futures",
  "log",

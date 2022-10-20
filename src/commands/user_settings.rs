@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use futures::StreamExt;
 use log::*;
 use serenity::{
@@ -18,11 +19,11 @@ use strum::IntoEnumIterator;
 use thiserror::Error;
 
 use crate::{
-    db::{Db, DbUser, DbUserGender, DbUserLanguage},
+    db::{DbUser, DbUserGender, DbUserLanguage},
     HandlerError, INTERACTION_TIMEOUT,
 };
 
-use super::Commands;
+use super::{AppCmd, Commands};
 
 enum Ids {
     GenderSelect,
@@ -199,40 +200,59 @@ fn create_user_settings_components<'a>(
     })
 }
 
-pub async fn handle_chat_input(
-    cmd: &ApplicationCommandInteraction,
-    db: &Db,
-    context: &Context,
-) -> Result<(), HandlerError> {
-    trace!("finding existing user");
-    let discord_id = cmd.user.id.to_string();
-    let user = db.find_user(discord_id.clone()).await?.unwrap_or(DbUser {
-        discord_id,
-        ..Default::default()
-    });
+pub struct UserSettingsCmd;
 
-    cmd.create_interaction_response(context, |res| {
-        create_response(
-            res,
-            InteractionResponseType::ChannelMessageWithSource,
-            &cmd.user,
-            &user,
-        )
-    })
-    .await?;
-    let msg = cmd.get_interaction_response(context).await?;
-    trace!("awaiting interactions");
-    let user = handle_interactions(context, &msg, &cmd.user, user).await?;
+#[async_trait]
+impl AppCmd for UserSettingsCmd {
+    fn to_application_command<'a>() -> CreateApplicationCommand
+    where
+        Self: Sized,
+    {
+        let mut cmd = CreateApplicationCommand::default();
+        cmd.name(Commands::UserSettings)
+            .kind(CommandType::ChatInput)
+            .description("Change personal chat message settings")
+            .dm_permission(true);
+        cmd
+    }
 
-    db.upsert_user(user.discord_id, user.language, user.gender)
+    async fn handle(
+        cmd: &ApplicationCommandInteraction,
+        handler: &crate::Handler,
+        context: &Context,
+    ) -> Result<(), HandlerError>
+    where
+        Self: Sized,
+    {
+        trace!("finding existing user");
+        let discord_id = cmd.user.id.to_string();
+        let user = handler
+            .db
+            .find_user(discord_id.clone())
+            .await?
+            .unwrap_or(DbUser {
+                discord_id,
+                ..Default::default()
+            });
+
+        cmd.create_interaction_response(context, |res| {
+            create_response(
+                res,
+                InteractionResponseType::ChannelMessageWithSource,
+                &cmd.user,
+                &user,
+            )
+        })
         .await?;
+        let msg = cmd.get_interaction_response(context).await?;
+        trace!("awaiting interactions");
+        let user = handle_interactions(context, &msg, &cmd.user, user).await?;
 
-    Ok(())
-}
+        handler
+            .db
+            .upsert_user(user.discord_id, user.language, user.gender)
+            .await?;
 
-pub fn register_chat_input(cmd: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
-    cmd.name(Commands::UserSettings)
-        .kind(CommandType::ChatInput)
-        .description("Change personal chat message settings")
-        .dm_permission(true)
+        Ok(())
+    }
 }

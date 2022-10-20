@@ -5,7 +5,6 @@ use db::Db;
 use log::*;
 use sqlx::PgPool;
 use std::time::Duration;
-use strum::IntoEnumIterator;
 use thiserror::Error;
 
 use serenity::{
@@ -30,7 +29,7 @@ use xiv_emote_parser::{
 
 use crate::{commands::Commands, db::DbUser};
 
-struct Handler {
+pub struct Handler {
     log_message_repo: LogMessageRepository,
     db: Db,
 }
@@ -333,17 +332,7 @@ impl EventHandler for Handler {
             trace!("incoming application command: {:?}", cmd);
 
             if let Err(err) = match Commands::try_from(cmd.data.name.as_str()) {
-                Ok(Commands::EmoteSelect) => {
-                    commands::emote_select::handle_chat_input(
-                        &cmd,
-                        &self.log_message_repo,
-                        &context,
-                    )
-                    .await
-                }
-                Ok(Commands::UserSettings) => {
-                    commands::user_settings::handle_chat_input(&cmd, &self.db, &context).await
-                }
+                Ok(app_cmd) => app_cmd.handle(&cmd, self, &context).await,
                 Err(e) => Err(HandlerError::UnrecognizedCommand(e)),
             } {
                 error!("error during interaction processing: {:?}", err);
@@ -366,9 +355,7 @@ impl EventHandler for Handler {
         info!("{} is connected", ready.user.name);
 
         if let Err(err) = Command::set_global_application_commands(&context, |create| {
-            Commands::iter().for_each(|cmd| {
-                create.create_application_command(cmd.register());
-            });
+            create.set_application_commands(Commands::application_commands());
             create
         })
         .await

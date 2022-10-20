@@ -31,3 +31,4 @@ sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "postgres", "t
 time = "0.3"
 strum = "0.24"
 strum_macros = "0.24"
+async-trait = "0.1"

@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use futures::stream::StreamExt;
 use log::*;
 use serenity::{
@@ -29,7 +30,7 @@ use xiv_emote_parser::{
 
 use crate::{send_emote, HandlerError, SendTargetType, INTERACTION_TIMEOUT, UNTARGETED_TARGET};
 
-use super::Commands;
+use super::{AppCmd, Commands};
 
 const INPUT_TARGET_MODAL: &str = "input_target_modal";
 const INPUT_TARGET_COMPONENT: &str = "input_target_input";
@@ -500,25 +501,38 @@ async fn handle_interactions(
     Err(HandlerError::TimeoutOrOverLimit)
 }
 
-pub async fn handle_chat_input(
-    cmd: &ApplicationCommandInteraction,
-    log_message_repo: &LogMessageRepository,
-    context: &Context,
-) -> Result<(), HandlerError> {
-    trace!("finding members");
-    let members = cmd
-        .guild_id
-        .ok_or(HandlerError::NotGuild)?
-        .members(context, None, None)
-        .await?;
-    trace!("potential members: {:?}", members);
-    emote_component_interaction(cmd, log_message_repo, context, members).await?;
-    Ok(())
-}
+pub struct EmoteSelectCmd;
 
-pub fn register_chat_input(cmd: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
-    cmd.name(Commands::EmoteSelect)
-        .kind(CommandType::ChatInput)
-        .description("Select an emote and optionally a target user")
-        .dm_permission(true)
+#[async_trait]
+impl AppCmd for EmoteSelectCmd {
+    fn to_application_command<'a>() -> CreateApplicationCommand
+    where
+        Self: Sized,
+    {
+        let mut cmd = CreateApplicationCommand::default();
+        cmd.name(Commands::EmoteSelect)
+            .kind(CommandType::ChatInput)
+            .description("Select an emote and optionally a target user")
+            .dm_permission(true);
+        cmd
+    }
+
+    async fn handle(
+        cmd: &ApplicationCommandInteraction,
+        handler: &crate::Handler,
+        context: &Context,
+    ) -> Result<(), HandlerError>
+    where
+        Self: Sized,
+    {
+        trace!("finding members");
+        let members = cmd
+            .guild_id
+            .ok_or(HandlerError::NotGuild)?
+            .members(context, None, None)
+            .await?;
+        trace!("potential members: {:?}", members);
+        emote_component_interaction(cmd, &handler.log_message_repo, context, members).await?;
+        Ok(())
+    }
 }
