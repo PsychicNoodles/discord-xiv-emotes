@@ -244,15 +244,15 @@ async fn emote_component_interaction(
     trace!("creating interaction response");
     let emote_list: Vec<_> = log_message_repo.emote_list_by_id().collect();
     cmd.create_interaction_response(context, |res| {
-        res.interaction_response_data(|data| {
-            data.ephemeral(true)
-                .content(interaction_response_content(emote_list.len(), None))
-                .components(|c| {
-                    create_user_select_components(c, &emote_list, None, None, |row| {
-                        create_user_select(row, None, &members)
-                    })
-                })
-        })
+        create_response(
+            res,
+            InteractionResponseType::ChannelMessageWithSource,
+            &emote_list,
+            None,
+            None,
+            None,
+            &members,
+        )
     })
     .await?;
     let msg = cmd.get_interaction_response(context).await?;
@@ -310,29 +310,29 @@ async fn emote_component_interaction(
 
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
+    kind: InteractionResponseType,
     emote_list: &Vec<&String>,
     emote_list_offset: Option<usize>,
     selected_emote_value: Option<&str>,
     selected_target_value: Option<&Target>,
     members: &Vec<Member>,
 ) -> &'a mut CreateInteractionResponse<'b> {
-    res.kind(InteractionResponseType::UpdateMessage)
-        .interaction_response_data(|d| {
-            d.ephemeral(true)
-                .content(interaction_response_content(
-                    emote_list.len(),
+    res.kind(kind).interaction_response_data(|d| {
+        d.ephemeral(true)
+            .content(interaction_response_content(
+                emote_list.len(),
+                emote_list_offset,
+            ))
+            .components(|c| {
+                create_user_select_components(
+                    c,
+                    emote_list,
                     emote_list_offset,
-                ))
-                .components(|c| {
-                    create_user_select_components(
-                        c,
-                        emote_list,
-                        emote_list_offset,
-                        selected_emote_value,
-                        |row| create_user_select(row, selected_target_value, members),
-                    )
-                })
-        })
+                    selected_emote_value,
+                    |row| create_user_select(row, selected_target_value, members),
+                )
+            })
+    })
 }
 
 async fn handle_interactions(
@@ -390,6 +390,7 @@ async fn handle_interactions(
                                 .create_interaction_response(context, |res| {
                                     create_response(
                                         res,
+                                        InteractionResponseType::UpdateMessage,
                                         emote_list,
                                         emote_list_offset,
                                         emote.as_deref(),
@@ -486,6 +487,7 @@ async fn handle_interactions(
             .create_interaction_response(context, |res| {
                 create_response(
                     res,
+                    InteractionResponseType::UpdateMessage,
                     emote_list,
                     emote_list_offset,
                     emote.as_deref(),

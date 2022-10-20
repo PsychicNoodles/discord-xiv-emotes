@@ -1,5 +1,6 @@
 use log::*;
 use sqlx::PgPool;
+use strum_macros::{EnumIter, FromRepr};
 use thiserror::Error;
 use time::OffsetDateTime;
 use xiv_emote_parser::{
@@ -15,7 +16,7 @@ pub enum DbError {
 
 pub type Result<T> = std::result::Result<T, DbError>;
 
-#[derive(sqlx::Type, Default, Debug, Clone, Copy)]
+#[derive(sqlx::Type, Default, Debug, Clone, Copy, PartialEq, Eq, EnumIter, FromRepr)]
 #[repr(i32)]
 pub enum DbUserLanguage {
     #[default]
@@ -24,6 +25,27 @@ pub enum DbUserLanguage {
 }
 
 impl DbUserLanguage {
+    pub fn to_string_en(&self) -> &'static str {
+        match self {
+            DbUserLanguage::En => "English",
+            DbUserLanguage::Ja => "Japanese",
+        }
+    }
+
+    pub fn to_string_ja(&self) -> &'static str {
+        match self {
+            DbUserLanguage::En => "英語",
+            DbUserLanguage::Ja => "日本語",
+        }
+    }
+
+    pub fn to_string(&self, language: DbUserLanguage) -> &'static str {
+        match language {
+            DbUserLanguage::En => self.to_string_en(),
+            DbUserLanguage::Ja => self.to_string_ja(),
+        }
+    }
+
     pub fn with_emote_data<'a>(&'a self, emote_data: &'a EmoteData) -> &LogMessagePair {
         match self {
             DbUserLanguage::En => &emote_data.en,
@@ -32,12 +54,35 @@ impl DbUserLanguage {
     }
 }
 
-#[derive(sqlx::Type, Default, Debug, Clone, Copy)]
+#[derive(sqlx::Type, Default, Debug, Clone, Copy, PartialEq, Eq, EnumIter, FromRepr)]
 #[repr(i32)]
 pub enum DbUserGender {
     #[default]
     M = 0,
     F = 1,
+}
+
+impl DbUserGender {
+    pub fn to_string_en(&self) -> &'static str {
+        match self {
+            DbUserGender::M => "Male",
+            DbUserGender::F => "Female",
+        }
+    }
+
+    pub fn to_string_ja(&self) -> &'static str {
+        match self {
+            DbUserGender::M => "男性",
+            DbUserGender::F => "女性",
+        }
+    }
+
+    pub fn to_string(&self, language: DbUserLanguage) -> &'static str {
+        match language {
+            DbUserLanguage::En => self.to_string_en(),
+            DbUserLanguage::Ja => self.to_string_ja(),
+        }
+    }
 }
 
 impl From<DbUserGender> for Gender {
@@ -89,13 +134,13 @@ impl DbUser {
 pub struct Db(pub PgPool);
 
 impl Db {
-    pub async fn insert_user(
+    pub async fn upsert_user(
         &self,
         discord_id: String,
         language: DbUserLanguage,
         gender: DbUserGender,
     ) -> Result<()> {
-        debug!("inserting user {} {:?} {:?}", discord_id, language, gender);
+        debug!("upserting user {} {:?} {:?}", discord_id, language, gender);
         let user = DbUser {
             discord_id,
             language,
@@ -106,6 +151,8 @@ impl Db {
             "
             INSERT INTO users (discord_id, language, gender, insert_tm, update_tm)
             VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (discord_id) DO UPDATE
+            SET discord_id = $1, language = $2, gender = $3, update_tm = $5
         ",
             user.discord_id,
             user.language as i32,
