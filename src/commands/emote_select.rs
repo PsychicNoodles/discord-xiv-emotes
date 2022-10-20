@@ -16,7 +16,7 @@ use serenity::{
         },
         user::User,
     },
-    prelude::Context,
+    prelude::{Context, Mentionable},
 };
 use thiserror::Error;
 use xiv_emote_parser::log_message::{
@@ -102,7 +102,7 @@ impl Default for Target {
 impl ToString for Target {
     fn to_string(&self) -> String {
         match self {
-            Target::User(u) => u.name.clone(),
+            Target::User(u) => u.mention().to_string(),
             // Target::Role(r) => r.name.clone(),
             Target::Plain(s) => s.to_string(),
         }
