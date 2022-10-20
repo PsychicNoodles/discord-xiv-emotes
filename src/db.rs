@@ -25,21 +25,21 @@ pub enum DbUserLanguage {
 }
 
 impl DbUserLanguage {
-    pub fn to_string_en(&self) -> &'static str {
+    pub fn to_string_en(self) -> &'static str {
         match self {
             DbUserLanguage::En => "English",
             DbUserLanguage::Ja => "Japanese",
         }
     }
 
-    pub fn to_string_ja(&self) -> &'static str {
+    pub fn to_string_ja(self) -> &'static str {
         match self {
             DbUserLanguage::En => "英語",
             DbUserLanguage::Ja => "日本語",
         }
     }
 
-    pub fn to_string(&self, language: DbUserLanguage) -> &'static str {
+    pub fn to_string(self, language: DbUserLanguage) -> &'static str {
         match language {
             DbUserLanguage::En => self.to_string_en(),
             DbUserLanguage::Ja => self.to_string_ja(),
@@ -63,21 +63,21 @@ pub enum DbUserGender {
 }
 
 impl DbUserGender {
-    pub fn to_string_en(&self) -> &'static str {
+    pub fn to_string_en(self) -> &'static str {
         match self {
             DbUserGender::M => "Male",
             DbUserGender::F => "Female",
         }
     }
 
-    pub fn to_string_ja(&self) -> &'static str {
+    pub fn to_string_ja(self) -> &'static str {
         match self {
             DbUserGender::M => "男性",
             DbUserGender::F => "女性",
         }
     }
 
-    pub fn to_string(&self, language: DbUserLanguage) -> &'static str {
+    pub fn to_string(self, language: DbUserLanguage) -> &'static str {
         match language {
             DbUserLanguage::En => self.to_string_en(),
             DbUserLanguage::Ja => self.to_string_ja(),

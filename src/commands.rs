@@ -24,7 +24,7 @@ pub enum Commands {
 
 #[async_trait]
 trait AppCmd {
-    fn to_application_command<'a>() -> CreateApplicationCommand
+    fn to_application_command() -> CreateApplicationCommand
     where
         Self: Sized;
     async fn handle(

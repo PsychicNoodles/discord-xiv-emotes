@@ -428,7 +428,7 @@ pub struct EmoteSelectCmd;
 
 #[async_trait]
 impl AppCmd for EmoteSelectCmd {
-    fn to_application_command<'a>() -> CreateApplicationCommand
+    fn to_application_command() -> CreateApplicationCommand
     where
         Self: Sized,
     {
@@ -496,7 +496,7 @@ impl AppCmd for EmoteSelectCmd {
                 Character::new_from_string(target_name.to_string(), Gender::Male, true, false);
             trace!("message target: {:?}", target);
             let condition_texts =
-                extract_condition_texts(&language.with_emote_data(&messages).targeted)?;
+                extract_condition_texts(&language.with_emote_data(messages).targeted)?;
             let answers = LogMessageAnswers::new(origin, target)?;
             send_emote(
                 condition_texts,
@@ -512,7 +512,7 @@ impl AppCmd for EmoteSelectCmd {
         } else {
             trace!("no message target");
             let condition_texts =
-                extract_condition_texts(&language.with_emote_data(&messages).untargeted)?;
+                extract_condition_texts(&language.with_emote_data(messages).untargeted)?;
             let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
             send_emote(
                 condition_texts,

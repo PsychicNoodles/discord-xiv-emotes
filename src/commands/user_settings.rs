@@ -204,7 +204,7 @@ pub struct UserSettingsCmd;
 
 #[async_trait]
 impl AppCmd for UserSettingsCmd {
-    fn to_application_command<'a>() -> CreateApplicationCommand
+    fn to_application_command() -> CreateApplicationCommand
     where
         Self: Sized,
     {

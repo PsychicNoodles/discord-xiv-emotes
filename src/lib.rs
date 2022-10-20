@@ -80,7 +80,7 @@ pub fn split_by_max_message_len(
     } else {
         return res;
     };
-    while let Some(item) = body.next() {
+    for item in body {
         msg.push_str(", ");
 
         // todo count with codepoints rather than String len?
@@ -111,10 +111,11 @@ async fn check_other_cmd(
     match mparts[..] {
         [_cmd] if _cmd == "emotes" => {
             trace!("emotes command");
-            let emote_list: Vec<_> = log_message_repo.emote_list_by_id().cloned().collect();
-
             const EMOTE_LIST_PREFIX: &str = "List of emotes";
-            let results = split_by_max_message_len(EMOTE_LIST_PREFIX, emote_list.into_iter());
+            let results = split_by_max_message_len(
+                EMOTE_LIST_PREFIX,
+                log_message_repo.emote_list_by_id().cloned(),
+            );
             debug!("emotes response is {} messages long", results.len());
 
             for res in results {
@@ -175,7 +176,7 @@ async fn process_input(
             trace!("message target: {:?}", target);
             let answers = LogMessageAnswers::new(origin, target)?;
             let condition_texts =
-                extract_condition_texts(&language.with_emote_data(&messages).targeted)?;
+                extract_condition_texts(&language.with_emote_data(messages).targeted)?;
             send_emote(
                 condition_texts,
                 answers,
@@ -200,7 +201,7 @@ async fn process_input(
             trace!("message origin: {:?}", origin);
             let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
             let condition_texts =
-                extract_condition_texts(&language.with_emote_data(&messages).untargeted)?;
+                extract_condition_texts(&language.with_emote_data(messages).untargeted)?;
             send_emote(
                 condition_texts,
                 answers,
