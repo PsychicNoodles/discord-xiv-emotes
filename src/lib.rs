@@ -6,7 +6,7 @@ use db::Db;
 use futures::future::{try_join_all, TryFutureExt};
 use log::*;
 use sqlx::PgPool;
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 use thiserror::Error;
 
 use serenity::{
@@ -33,10 +33,7 @@ use xiv_emote_parser::{
     repository::{LogMessageRepository, LogMessageRepositoryError},
 };
 
-use crate::commands::{
-    global::GlobalCommands,
-    guild::{emote_commands::GuildEmoteCommandIds, GuildCommands},
-};
+use crate::commands::{global::GlobalCommands, guild::GuildCommands};
 
 pub struct Handler {
     log_message_repo: LogMessageRepository,
@@ -421,7 +418,6 @@ pub async fn setup_client(token: String, pool: PgPool) -> Client {
             log_message_repo,
             db: Db(pool),
         })
-        .type_map_insert::<GuildEmoteCommandIds>(HashMap::default())
         .await
         .expect("error creating client")
 }
