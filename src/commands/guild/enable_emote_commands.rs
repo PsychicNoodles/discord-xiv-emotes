@@ -56,6 +56,7 @@ impl AppCmd for EnableEmoteCommands {
     where
         Self: Sized,
     {
+        trace!("enabling emote commands");
         let guild_id = if let Some(id) = cmd.guild_id {
             id
         } else {

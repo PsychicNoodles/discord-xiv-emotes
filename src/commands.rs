@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use async_trait::async_trait;
 use serenity::{
     builder::CreateApplicationCommand,
@@ -22,4 +24,14 @@ trait AppCmd {
     ) -> Result<(), HandlerError>
     where
         Self: Sized;
+}
+
+#[async_trait]
+pub trait CommandsEnum: FromStr {
+    async fn handle(
+        self,
+        cmd: &ApplicationCommandInteraction,
+        handler: &Handler,
+        context: &Context,
+    ) -> Result<(), HandlerError>;
 }

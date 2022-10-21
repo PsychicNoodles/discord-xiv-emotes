@@ -1,7 +1,9 @@
 mod commands;
 mod db;
 
+use commands::CommandsEnum;
 use db::Db;
+use futures::future::{try_join_all, TryFutureExt};
 use log::*;
 use sqlx::PgPool;
 use std::time::Duration;
@@ -11,7 +13,11 @@ use serenity::{
     async_trait,
     constants::MESSAGE_CODE_LIMIT,
     model::{
-        prelude::{command::Command, interaction::Interaction, ChannelId, Message, Ready},
+        prelude::{
+            command::Command,
+            interaction::{application_command::ApplicationCommandInteraction, Interaction},
+            ChannelId, Message, Ready,
+        },
         user::User,
     },
     prelude::{Context, EventHandler, GatewayIntents},
@@ -27,7 +33,7 @@ use xiv_emote_parser::{
     repository::{LogMessageRepository, LogMessageRepositoryError},
 };
 
-use crate::commands::global::GlobalCommands;
+use crate::commands::{global::GlobalCommands, guild::GuildCommands};
 
 pub struct Handler {
     log_message_repo: LogMessageRepository,
@@ -45,7 +51,7 @@ pub enum HandlerError {
     #[error("Unrecognized emote ({0})")]
     UnrecognizedEmote(String),
     #[error("Unrecognized command ({0})")]
-    UnrecognizedCommand(#[from] strum::ParseError),
+    UnrecognizedCommand(String),
     #[error("Command was empty")]
     EmptyCommand,
     #[error("Internal error, could not retrieve emote data")]
@@ -324,10 +330,11 @@ impl EventHandler for Handler {
         if let Interaction::ApplicationCommand(cmd) = interaction {
             trace!("incoming application command: {:?}", cmd);
 
-            if let Err(err) = match GlobalCommands::try_from(cmd.data.name.as_str()) {
-                Ok(app_cmd) => app_cmd.handle(&cmd, self, &context).await,
-                Err(e) => Err(HandlerError::UnrecognizedCommand(e)),
-            } {
+            if let Err(err) = self
+                .try_handle_commands::<GlobalCommands>(&context, &cmd)
+                .or_else(|_| self.try_handle_commands::<GuildCommands>(&context, &cmd))
+                .await
+            {
                 error!("error during interaction processing: {:?}", err);
                 if let Err(e) = cmd
                     .create_followup_message(&context, |msg| msg.content(err.to_string()))
@@ -347,13 +354,45 @@ impl EventHandler for Handler {
     async fn ready(&self, context: Context, ready: Ready) {
         info!("{} is connected", ready.user.name);
 
+        info!(
+            "guilds: {:?}",
+            ready.guilds.iter().map(|ug| ug.id).collect::<Vec<_>>()
+        );
+
         if let Err(err) = Command::set_global_application_commands(&context, |create| {
             create.set_application_commands(GlobalCommands::application_commands());
             create
         })
         .await
         {
-            error!("error during setup: {:?}", err);
+            error!("error registering global application commands: {:?}", err);
+        }
+
+        if let Err(err) = try_join_all(ready.guilds.iter().map(|g| {
+            g.id.set_application_commands(&context, |create| {
+                create.set_application_commands(GuildCommands::application_commands());
+                create
+            })
+        }))
+        .await
+        {
+            error!("error registering guild application commands: {:?}", err);
+        }
+    }
+}
+
+impl Handler {
+    async fn try_handle_commands<T>(
+        &self,
+        context: &Context,
+        cmd: &ApplicationCommandInteraction,
+    ) -> Result<(), HandlerError>
+    where
+        T: CommandsEnum,
+    {
+        match T::from_str(cmd.data.name.as_str()) {
+            Ok(app_cmd) => app_cmd.handle(cmd, self, context).await,
+            Err(_) => Err(HandlerError::UnrecognizedCommand(cmd.data.name.clone())),
         }
     }
 }

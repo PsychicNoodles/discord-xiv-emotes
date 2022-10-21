@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::interaction::application_command::ApplicationCommandInteraction,
@@ -12,7 +13,7 @@ use self::{
     disable_emote_commands::DisableEmoteCommands, enable_emote_commands::EnableEmoteCommands,
 };
 
-use super::AppCmd;
+use super::{AppCmd, CommandsEnum};
 
 pub mod disable_emote_commands;
 pub mod enable_emote_commands;
@@ -36,8 +37,11 @@ impl GuildCommands {
     pub fn application_commands() -> Vec<CreateApplicationCommand> {
         Self::iter().map(Self::to_application_command).collect()
     }
+}
 
-    pub async fn handle(
+#[async_trait]
+impl CommandsEnum for GuildCommands {
+    async fn handle(
         self,
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,
