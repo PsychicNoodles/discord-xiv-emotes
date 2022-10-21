@@ -25,9 +25,12 @@ use xiv_emote_parser::log_message::{
     LogMessageAnswers,
 };
 
-use crate::{send_emote, HandlerError, SendTargetType, INTERACTION_TIMEOUT, UNTARGETED_TARGET};
+use crate::{
+    commands::AppCmd, send_emote, HandlerError, SendTargetType, INTERACTION_TIMEOUT,
+    UNTARGETED_TARGET,
+};
 
-use super::{AppCmd, Commands};
+use super::GlobalCommands;
 
 const INPUT_TARGET_MODAL: &str = "input_target_modal";
 const INPUT_TARGET_COMPONENT: &str = "input_target_input";
@@ -463,7 +466,7 @@ impl AppCmd for EmoteSelectCmd {
         Self: Sized,
     {
         let mut cmd = CreateApplicationCommand::default();
-        cmd.name(Commands::EmoteSelect)
+        cmd.name(GlobalCommands::EmoteSelect)
             .kind(CommandType::ChatInput)
             .description("Select an emote and optionally a target user")
             .dm_permission(true);

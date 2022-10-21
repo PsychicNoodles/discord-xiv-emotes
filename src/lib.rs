@@ -27,7 +27,7 @@ use xiv_emote_parser::{
     repository::{LogMessageRepository, LogMessageRepositoryError},
 };
 
-use crate::commands::Commands;
+use crate::commands::global::GlobalCommands;
 
 pub struct Handler {
     log_message_repo: LogMessageRepository,
@@ -324,7 +324,7 @@ impl EventHandler for Handler {
         if let Interaction::ApplicationCommand(cmd) = interaction {
             trace!("incoming application command: {:?}", cmd);
 
-            if let Err(err) = match Commands::try_from(cmd.data.name.as_str()) {
+            if let Err(err) = match GlobalCommands::try_from(cmd.data.name.as_str()) {
                 Ok(app_cmd) => app_cmd.handle(&cmd, self, &context).await,
                 Err(e) => Err(HandlerError::UnrecognizedCommand(e)),
             } {
@@ -348,7 +348,7 @@ impl EventHandler for Handler {
         info!("{} is connected", ready.user.name);
 
         if let Err(err) = Command::set_global_application_commands(&context, |create| {
-            create.set_application_commands(Commands::application_commands());
+            create.set_application_commands(GlobalCommands::application_commands());
             create
         })
         .await

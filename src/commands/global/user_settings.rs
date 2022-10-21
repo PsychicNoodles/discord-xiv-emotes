@@ -19,11 +19,12 @@ use strum::IntoEnumIterator;
 use thiserror::Error;
 
 use crate::{
+    commands::AppCmd,
     db::models::{DbGender, DbLanguage, DbUser},
     HandlerError, INTERACTION_TIMEOUT,
 };
 
-use super::{AppCmd, Commands};
+use super::GlobalCommands;
 
 enum Ids {
     GenderSelect,
@@ -209,7 +210,7 @@ impl AppCmd for UserSettingsCmd {
         Self: Sized,
     {
         let mut cmd = CreateApplicationCommand::default();
-        cmd.name(Commands::UserSettings)
+        cmd.name(GlobalCommands::UserSettings)
             .kind(CommandType::ChatInput)
             .description("Change personal chat message settings")
             .dm_permission(true);
