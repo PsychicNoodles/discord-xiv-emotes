@@ -88,7 +88,7 @@ impl TryFrom<&str> for Ids {
 
 #[derive(Debug, Clone)]
 enum Target {
-    User(User),
+    User(UserId),
     // Role(Role),
     Plain(String),
 }
@@ -114,10 +114,43 @@ const INTERACTION_CONTENT: &str = "Select an emote and optionally a target";
 // max number of select menu options
 const EMOTE_LIST_OFFSET_STEP: usize = 25;
 
+#[derive(Debug, Clone)]
+struct UserInfo {
+    name: String,
+    id: UserId,
+}
+
+impl From<Member> for UserInfo {
+    fn from(m: Member) -> Self {
+        UserInfo {
+            name: m.display_name().into_owned(),
+            id: m.user.id,
+        }
+    }
+}
+
+impl From<User> for UserInfo {
+    fn from(u: User) -> Self {
+        UserInfo {
+            name: u.name,
+            id: u.id,
+        }
+    }
+}
+
+impl From<&User> for UserInfo {
+    fn from(u: &User) -> Self {
+        UserInfo {
+            name: u.name.clone(),
+            id: u.id,
+        }
+    }
+}
+
 fn create_user_select<'a>(
     c: &'a mut CreateComponents,
     selected_target_value: Option<&Target>,
-    members: &Vec<Member>,
+    members: &Vec<UserInfo>,
 ) -> &'a mut CreateComponents {
     c.create_action_row(|row| {
         row.create_select_menu(|menu| {
@@ -133,14 +166,12 @@ fn create_user_select<'a>(
                 .options(|opts| {
                     for member in members {
                         opts.create_option(|o| {
-                            let value = member.user.id;
-                            o.label(member.display_name())
-                                .value(value)
-                                .default_selection(
-                                    selected_target_value
-                                        .map(|t| matches!(t, Target::User(u) if u.id == value))
-                                        .unwrap_or(false),
-                                )
+                            let value = member.id;
+                            o.label(&member.name).value(value).default_selection(
+                                selected_target_value
+                                    .map(|t| matches!(t, Target::User(u) if *u == value))
+                                    .unwrap_or(false),
+                            )
                         });
                     }
                     opts
@@ -240,7 +271,7 @@ fn create_response<'a, 'b>(
     emote_list_offset: Option<usize>,
     selected_emote_value: Option<&str>,
     selected_target_value: Option<&Target>,
-    members: &Vec<Member>,
+    members: &Vec<UserInfo>,
 ) -> &'a mut CreateInteractionResponse<'b> {
     res.kind(kind).interaction_response_data(|d| {
         d.ephemeral(true)
@@ -264,7 +295,7 @@ async fn handle_interactions(
     context: &Context,
     msg: &Message,
     emote_list: &Vec<&String>,
-    members: Vec<Member>,
+    members: Vec<UserInfo>,
 ) -> Result<InteractionResult, HandlerError> {
     let mut emote: Option<String> = None;
     let mut emote_list_offset: Option<usize> = None;
@@ -369,9 +400,8 @@ async fn handle_interactions(
                 target.replace(Target::User(
                     members
                         .iter()
-                        .map(|member| &member.user)
-                        .find(|user| user.id == user_id)
-                        .cloned()
+                        .map(|member| member.id)
+                        .find(|user| *user == user_id)
                         .ok_or(HandlerError::UserNotFound)?,
                 ));
             }
@@ -449,15 +479,33 @@ impl AppCmd for EmoteSelectCmd {
         Self: Sized,
     {
         trace!("finding members");
-        let members = cmd
-            .guild_id
-            .ok_or(HandlerError::NotGuild)?
-            .members(context, None, None)
-            .await?;
+
+        let (author, members) = if let Some(guild_id) = cmd.guild_id {
+            (
+                cmd.user
+                    .nick_in(&context, guild_id)
+                    .await
+                    .unwrap_or_else(|| cmd.user.name.clone()),
+                guild_id
+                    .members(context, None, None)
+                    .await?
+                    .into_iter()
+                    .map(UserInfo::from)
+                    .collect(),
+            )
+        } else {
+            (
+                cmd.user.name.clone(),
+                vec![
+                    UserInfo::from(&cmd.user),
+                    UserInfo::from(User::from(context.cache.current_user())),
+                ],
+            )
+        };
         trace!("potential members: {:?}", members);
-        let log_message_repo = &handler.log_message_repo;
+
         trace!("creating interaction response");
-        let emote_list: Vec<_> = log_message_repo.emote_list_by_id().collect();
+        let emote_list: Vec<_> = handler.log_message_repo.emote_list_by_id().collect();
         cmd.create_interaction_response(context, |res| {
             create_response(
                 res,
@@ -470,26 +518,18 @@ impl AppCmd for EmoteSelectCmd {
             )
         })
         .await?;
-
         let msg = cmd.get_interaction_response(context).await?;
+
         trace!("awaiting interactions");
         let res = handle_interactions(context, &msg, &emote_list, members).await?;
 
-        let messages = log_message_repo.messages(&res.emote)?;
+        let messages = handler.log_message_repo.messages(&res.emote)?;
 
         let user = handler.db.find_user(cmd.user.id).await?;
         let language = user.language();
         let gender = user.gender();
 
-        let origin = Character::new_from_string(
-            cmd.user
-                .nick_in(&context, cmd.guild_id.ok_or(HandlerError::NotGuild)?)
-                .await
-                .unwrap_or_else(|| cmd.user.name.clone()),
-            gender.into(),
-            true,
-            false,
-        );
+        let origin = Character::new_from_string(author, gender.into(), true, false);
         trace!("message origin: {:?}", origin);
         if let Some(target_name) = &res.target {
             let target =
