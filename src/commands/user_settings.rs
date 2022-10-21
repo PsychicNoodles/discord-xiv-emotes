@@ -19,7 +19,7 @@ use strum::IntoEnumIterator;
 use thiserror::Error;
 
 use crate::{
-    db::{DbGender, DbLanguage, DbUser},
+    db::models::{DbGender, DbLanguage, DbUser},
     HandlerError, INTERACTION_TIMEOUT,
 };
 
