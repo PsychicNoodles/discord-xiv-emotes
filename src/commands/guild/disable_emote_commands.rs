@@ -1,35 +1,53 @@
 use async_trait::async_trait;
+use futures::{stream, StreamExt, TryStreamExt};
 use log::*;
 use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::{
-        command::{CommandOptionType, CommandType},
-        interaction::application_command::ApplicationCommandInteraction,
+        command::CommandType, interaction::application_command::ApplicationCommandInteraction,
         GuildId,
     },
     prelude::Context,
 };
 
-use crate::{commands::AppCmd, db::models::DbGuild, Handler, HandlerError};
+use crate::{
+    commands::{guild::emote_commands::is_commands_enabled, AppCmd},
+    Handler, HandlerError,
+};
 
-use super::GuildCommands;
+use super::{emote_commands::GuildEmoteCommandIds, GuildCommands};
 
-async fn enable_emote_commands(
-    guild_id: &GuildId,
-    handler: &Handler,
-    context: &Context,
-) -> Result<(), HandlerError> {
-    for emote in handler.log_message_repo.emote_list() {
-        guild_id
-            .create_application_command(context, |cmd| {
-                cmd.name(emote).create_option(|opt| {
-                    opt.kind(CommandOptionType::Mentionable)
-                        .name("target")
-                        .description("Optional target for the emote")
-                })
-            })
-            .await?;
-    }
+async fn disable_emote_commands(guild_id: GuildId, context: &Context) -> Result<(), HandlerError> {
+    let command_ids: Vec<_> = if let Some(command_ids_map) =
+        context.data.write().await.get_mut::<GuildEmoteCommandIds>()
+    {
+        match command_ids_map.get_mut(&guild_id) {
+            Some(ids) if ids.is_empty() => {
+                warn!(
+                    "tried to disable emote commands for guild {:?} but command id list was empty",
+                    guild_id
+                );
+                return Ok(());
+            }
+            None => {
+                warn!(
+                    "tried to disable emote commands for guild {:?} but there was no data",
+                    guild_id
+                );
+                return Ok(());
+            }
+            // collect so that the data is owned before dropping lock
+            Some(ids) => ids.drain(..).collect(),
+        }
+    } else {
+        return Err(HandlerError::TypeMapNotFound);
+    };
+
+    stream::iter(command_ids)
+        .then(|id| async move { guild_id.delete_application_command(context, id).await })
+        .try_collect()
+        .await?;
+
     Ok(())
 }
 
@@ -50,7 +68,7 @@ impl AppCmd for DisableEmoteCommands {
 
     async fn handle(
         cmd: &ApplicationCommandInteraction,
-        handler: &Handler,
+        _handler: &Handler,
         context: &Context,
     ) -> Result<(), HandlerError>
     where
@@ -64,17 +82,8 @@ impl AppCmd for DisableEmoteCommands {
         };
 
         trace!("finding guild settings");
-        let discord_id = cmd.user.id.to_string();
-        let guild = handler
-            .db
-            .find_guild(discord_id.clone())
-            .await?
-            .unwrap_or(DbGuild {
-                discord_id,
-                ..Default::default()
-            });
 
-        if guild.commands_enabled {
+        if is_commands_enabled(&context.data, guild_id).await? {
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
                     data.ephemeral(true)
@@ -83,11 +92,7 @@ impl AppCmd for DisableEmoteCommands {
             })
             .await?;
         } else {
-            enable_emote_commands(&guild_id, handler, context).await?;
-            handler
-                .db
-                .upsert_guild(guild.discord_id, guild.language, guild.gender, true)
-                .await?;
+            disable_emote_commands(guild_id, context).await?;
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
                     data.ephemeral(true).content("Guild commands enabled!")

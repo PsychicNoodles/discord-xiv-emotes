@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use futures::{stream, StreamExt, TryStreamExt};
 use log::*;
 use serenity::{
     builder::CreateApplicationCommand,
@@ -10,26 +11,47 @@ use serenity::{
     prelude::Context,
 };
 
-use crate::{commands::AppCmd, db::models::DbGuild, Handler, HandlerError};
+use crate::{
+    commands::{guild::emote_commands::is_commands_enabled, AppCmd},
+    Handler, HandlerError,
+};
 
-use super::GuildCommands;
+use super::{emote_commands::GuildEmoteCommandIds, GuildCommands};
 
 async fn enable_emote_commands(
-    guild_id: &GuildId,
+    guild_id: GuildId,
     handler: &Handler,
     context: &Context,
 ) -> Result<(), HandlerError> {
-    for emote in handler.log_message_repo.emote_list() {
-        guild_id
-            .create_application_command(context, |cmd| {
-                cmd.name(emote).create_option(|opt| {
-                    opt.kind(CommandOptionType::Mentionable)
-                        .name("target")
-                        .description("Optional target for the emote")
+    let command_ids: Vec<_> = stream::iter(handler.log_message_repo.emote_list())
+        .then(|emote| async move {
+            guild_id
+                .create_application_command(context, |cmd| {
+                    cmd.name(emote).create_option(|opt| {
+                        opt.kind(CommandOptionType::Mentionable)
+                            .name("target")
+                            .description("Optional target for the emote")
+                    })
                 })
-            })
-            .await?;
+                .await
+                .map(|c| c.id)
+        })
+        .try_collect()
+        .await?;
+    if let Some(command_ids_map) = context.data.write().await.get_mut::<GuildEmoteCommandIds>() {
+        match command_ids_map.get(&guild_id) {
+            Some(ids) if !ids.is_empty() => {
+                // maybe should disable all and then reenable?
+                warn!("tried to enable emote commands for guild {:?} but there was already data ({:?})", guild_id, ids);
+                return Ok(());
+            }
+            _ => {}
+        }
+        command_ids_map.insert(guild_id, command_ids);
+    } else {
+        return Err(HandlerError::TypeMapNotFound);
     }
+
     Ok(())
 }
 
@@ -64,17 +86,8 @@ impl AppCmd for EnableEmoteCommands {
         };
 
         trace!("finding guild settings");
-        let discord_id = cmd.user.id.to_string();
-        let guild = handler
-            .db
-            .find_guild(discord_id.clone())
-            .await?
-            .unwrap_or(DbGuild {
-                discord_id,
-                ..Default::default()
-            });
 
-        if guild.commands_enabled {
+        if is_commands_enabled(&context.data, guild_id).await? {
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
                     data.ephemeral(true)
@@ -83,11 +96,7 @@ impl AppCmd for EnableEmoteCommands {
             })
             .await?;
         } else {
-            enable_emote_commands(&guild_id, handler, context).await?;
-            handler
-                .db
-                .upsert_guild(guild.discord_id, guild.language, guild.gender, true)
-                .await?;
+            enable_emote_commands(guild_id, handler, context).await?;
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
                     data.ephemeral(true).content("Guild commands enabled!")

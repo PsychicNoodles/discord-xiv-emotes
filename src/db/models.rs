@@ -157,7 +157,6 @@ pub struct DbGuild {
     pub discord_id: String,
     pub language: DbLanguage,
     pub gender: DbGender,
-    pub commands_enabled: bool,
     pub insert_tm: time::OffsetDateTime,
     pub update_tm: time::OffsetDateTime,
 }
@@ -168,7 +167,6 @@ impl Default for DbGuild {
             discord_id: String::default(),
             language: DbLanguage::default(),
             gender: DbGender::default(),
-            commands_enabled: false,
             insert_tm: OffsetDateTime::now_utc(),
             update_tm: OffsetDateTime::now_utc(),
         }

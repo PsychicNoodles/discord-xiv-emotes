@@ -58,3 +58,31 @@ impl CommandsEnum for GuildCommands {
         .await
     }
 }
+
+pub mod emote_commands {
+    use std::{collections::HashMap, sync::Arc};
+
+    use serenity::{
+        model::prelude::{CommandId, GuildId},
+        prelude::{RwLock, TypeMap, TypeMapKey},
+    };
+
+    use crate::HandlerError;
+
+    pub struct GuildEmoteCommandIds;
+
+    impl TypeMapKey for GuildEmoteCommandIds {
+        type Value = HashMap<GuildId, Vec<CommandId>>;
+    }
+
+    pub async fn is_commands_enabled(
+        data: &Arc<RwLock<TypeMap>>,
+        guild_id: GuildId,
+    ) -> Result<bool, HandlerError> {
+        data.read()
+            .await
+            .get::<GuildEmoteCommandIds>()
+            .ok_or(HandlerError::TypeMapNotFound)
+            .map(|map| map.get(&guild_id).map(|v| !v.is_empty()).unwrap_or(false))
+    }
+}

@@ -72,25 +72,20 @@ impl Db {
         discord_id: impl ToString,
         language: DbLanguage,
         gender: DbGender,
-        commands_enabled: bool,
     ) -> Result<()> {
         let discord_id = discord_id.to_string();
-        debug!(
-            "upserting guild {} {:?} {:?} {}",
-            discord_id, language, gender, commands_enabled
-        );
+        debug!("upserting guild {} {:?} {:?}", discord_id, language, gender);
         let now = time::OffsetDateTime::now_utc();
         sqlx::query!(
             "
-            INSERT INTO guilds (discord_id, language, gender, commands_enabled, insert_tm, update_tm)
-            VALUES ($1, $2, $3, $4, $5, $5)
+            INSERT INTO guilds (discord_id, language, gender, insert_tm, update_tm)
+            VALUES ($1, $2, $3, $4, $4)
             ON CONFLICT (discord_id) DO UPDATE
-            SET discord_id = $1, language = $2, gender = $3, commands_enabled = $4, update_tm = $5
+            SET discord_id = $1, language = $2, gender = $3, update_tm = $4
         ",
             discord_id,
             language as i32,
             gender as i32,
-            commands_enabled,
             now
         )
         .execute(&self.0)
@@ -108,7 +103,6 @@ impl Db {
                 discord_id,
                 language as "language: DbLanguage",
                 gender as "gender: DbGender",
-                commands_enabled,
                 insert_tm,
                 update_tm
             FROM guilds
