@@ -1,18 +1,19 @@
 use async_trait::async_trait;
-use futures::{stream, StreamExt, TryStreamExt};
 use log::*;
 use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::{
         command::{CommandOptionType, CommandType},
-        interaction::application_command::ApplicationCommandInteraction,
+        interaction::{
+            application_command::ApplicationCommandInteraction, InteractionResponseType,
+        },
         GuildId,
     },
     prelude::Context,
 };
 
 use crate::{
-    commands::{guild::emote_commands::is_commands_enabled, AppCmd},
+    commands::{check_is_app_command_cap_err, guild::emote_commands::is_commands_enabled, AppCmd},
     Handler, HandlerError,
 };
 
@@ -23,22 +24,41 @@ async fn enable_emote_commands(
     handler: &Handler,
     context: &Context,
 ) -> Result<(), HandlerError> {
-    let command_ids: Vec<_> = stream::iter(handler.log_message_repo.emote_list())
-        .then(|emote| async move {
-            guild_id
-                .create_application_command(context, |cmd| {
-                    cmd.name(emote).create_option(|opt| {
-                        opt.kind(CommandOptionType::Mentionable)
-                            .name("target")
-                            .description("Optional target for the emote")
-                    })
-                })
-                .await
-                .map(|c| c.id)
+    let emotes: Vec<_> = handler
+        .log_message_repo
+        .emote_list_by_id()
+        .map(|emote| emote.strip_prefix("/").unwrap_or(emote))
+        .collect();
+
+    let emote_commands = emotes.iter().map(|emote| {
+        let mut cmd = CreateApplicationCommand::default();
+        cmd.name(emote)
+            .kind(CommandType::ChatInput)
+            .description(format!("Use the {} emote", emote))
+            .create_option(|opt| {
+                opt.kind(CommandOptionType::Mentionable)
+                    .name("target")
+                    .description("Optional target for the emote")
+            });
+        cmd
+    });
+    let const_commands = GuildCommands::application_commands();
+
+    let command_ids = guild_id
+        .set_application_commands(context, |set| {
+            set.set_application_commands(emote_commands.chain(const_commands).collect())
         })
-        .try_collect()
-        .await?;
+        .await
+        .map_err(check_is_app_command_cap_err)?;
+    // unfortunately the most unique info for an application command is the name, but it's also unique so good enough
+    let command_ids = command_ids
+        .into_iter()
+        .filter(|c| emotes.contains(&c.name.as_str()))
+        .map(|c| c.id)
+        .collect();
+
     if let Some(command_ids_map) = context.data.write().await.get_mut::<GuildEmoteCommandIds>() {
+        trace!("got command ids map");
         match command_ids_map.get(&guild_id) {
             Some(ids) if !ids.is_empty() => {
                 // maybe should disable all and then reenable?
@@ -88,6 +108,7 @@ impl AppCmd for EnableEmoteCommands {
         trace!("finding guild settings");
 
         if is_commands_enabled(&context.data, guild_id).await? {
+            trace!("commands are already enabled");
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
                     data.ephemeral(true)
@@ -96,7 +117,13 @@ impl AppCmd for EnableEmoteCommands {
             })
             .await?;
         } else {
+            trace!("enabling commands");
+            cmd.create_interaction_response(context, |res| {
+                res.kind(InteractionResponseType::DeferredChannelMessageWithSource)
+            })
+            .await?;
             enable_emote_commands(guild_id, handler, context).await?;
+            trace!("finished enabling commands");
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
                     data.ephemeral(true).content("Guild commands enabled!")

@@ -34,8 +34,8 @@ impl GuildCommands {
         }
     }
 
-    pub fn application_commands() -> Vec<CreateApplicationCommand> {
-        Self::iter().map(Self::to_application_command).collect()
+    pub fn application_commands() -> impl Iterator<Item = CreateApplicationCommand> {
+        Self::iter().map(Self::to_application_command)
     }
 }
 

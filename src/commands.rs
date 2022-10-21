@@ -35,3 +35,18 @@ pub trait CommandsEnum: FromStr {
         context: &Context,
     ) -> Result<(), HandlerError>;
 }
+
+fn check_is_app_command_cap_err(err: serenity::Error) -> HandlerError {
+    if let serenity::Error::Http(boxed_err) = &err {
+        match **boxed_err {
+            serenity::http::HttpError::UnsuccessfulRequest(
+                serenity::http::error::ErrorResponse {
+                    error: serenity::http::error::DiscordJsonError { code, .. },
+                    ..
+                },
+            ) if code == 30032 => return HandlerError::ApplicationCommandCap,
+            _ => {}
+        };
+    }
+    HandlerError::Send(err)
+}

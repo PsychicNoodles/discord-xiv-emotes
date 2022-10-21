@@ -79,6 +79,8 @@ pub enum HandlerError {
     UnexpectedData,
     #[error("Internal error")]
     TypeMapNotFound,
+    #[error("Maximum number of commands reached")]
+    ApplicationCommandCap,
 }
 
 pub fn split_by_max_message_len(
@@ -311,7 +313,7 @@ impl EventHandler for Handler {
         if !msg.is_own(&context) && msg.content.starts_with(PREFIX) {
             let mut mparts: Vec<_> = msg.content.split_whitespace().collect();
             if let Some(first) = mparts.get_mut(0) {
-                *first = first.get(1..).unwrap_or(first);
+                *first = first.strip_prefix(PREFIX).unwrap_or(first);
             }
             debug!("message parts: {:?}", mparts);
             match process_input(&mparts, &self.log_message_repo, &self.db, &context, &msg).await {
@@ -365,7 +367,7 @@ impl EventHandler for Handler {
         );
 
         if let Err(err) = Command::set_global_application_commands(&context, |create| {
-            create.set_application_commands(GlobalCommands::application_commands());
+            create.set_application_commands(GlobalCommands::application_commands().collect());
             create
         })
         .await
@@ -375,7 +377,7 @@ impl EventHandler for Handler {
 
         if let Err(err) = try_join_all(ready.guilds.iter().map(|g| {
             g.id.set_application_commands(&context, |create| {
-                create.set_application_commands(GuildCommands::application_commands());
+                create.set_application_commands(GuildCommands::application_commands().collect());
                 create
             })
         }))

@@ -4,7 +4,10 @@ use log::*;
 use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::{
-        command::CommandType, interaction::application_command::ApplicationCommandInteraction,
+        command::CommandType,
+        interaction::{
+            application_command::ApplicationCommandInteraction, InteractionResponseType,
+        },
         GuildId,
     },
     prelude::Context,
@@ -85,7 +88,12 @@ impl AppCmd for DisableEmoteCommands {
 
         if is_commands_enabled(&context.data, guild_id).await? {
             trace!("disabling commands");
+            cmd.create_interaction_response(context, |res| {
+                res.kind(InteractionResponseType::DeferredChannelMessageWithSource)
+            })
+            .await?;
             disable_emote_commands(guild_id, context).await?;
+            trace!("finished disabling commands");
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
                     data.ephemeral(true).content("Guild commands disabled!")
