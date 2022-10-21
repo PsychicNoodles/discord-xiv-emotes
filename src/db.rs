@@ -4,7 +4,7 @@ use log::*;
 use sqlx::PgPool;
 use thiserror::Error;
 
-use self::models::{DbGender, DbLanguage, DbUser, DbUserOpt};
+use self::models::{DbGender, DbGuild, DbLanguage, DbUser, DbUserOpt};
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -20,29 +20,24 @@ pub struct Db(pub PgPool);
 impl Db {
     pub async fn upsert_user(
         &self,
-        discord_id: String,
+        discord_id: impl ToString,
         language: DbLanguage,
         gender: DbGender,
     ) -> Result<()> {
+        let discord_id = discord_id.to_string();
         debug!("upserting user {} {:?} {:?}", discord_id, language, gender);
-        let user = DbUser {
-            discord_id,
-            language,
-            gender,
-            ..Default::default()
-        };
+        let now = time::OffsetDateTime::now_utc();
         sqlx::query!(
             "
             INSERT INTO users (discord_id, language, gender, insert_tm, update_tm)
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, $4)
             ON CONFLICT (discord_id) DO UPDATE
-            SET discord_id = $1, language = $2, gender = $3, update_tm = $5
+            SET discord_id = $1, language = $2, gender = $3, update_tm = $4
         ",
-            user.discord_id,
-            user.language as i32,
-            user.gender as i32,
-            user.insert_tm,
-            user.update_tm
+            discord_id,
+            language as i32,
+            gender as i32,
+            now
         )
         .execute(&self.0)
         .await?;
@@ -70,5 +65,60 @@ impl Db {
         .await?;
         debug!("user lookup: {:?}", res);
         Ok(DbUserOpt(res))
+    }
+
+    pub async fn upsert_guild(
+        &self,
+        discord_id: impl ToString,
+        language: DbLanguage,
+        gender: DbGender,
+        commands_enabled: bool,
+    ) -> Result<()> {
+        let discord_id = discord_id.to_string();
+        debug!(
+            "upserting guild {} {:?} {:?} {}",
+            discord_id, language, gender, commands_enabled
+        );
+        let now = time::OffsetDateTime::now_utc();
+        sqlx::query!(
+            "
+            INSERT INTO guilds (discord_id, language, gender, commands_enabled, insert_tm, update_tm)
+            VALUES ($1, $2, $3, $4, $5, $5)
+            ON CONFLICT (discord_id) DO UPDATE
+            SET discord_id = $1, language = $2, gender = $3, commands_enabled = $4, update_tm = $5
+        ",
+            discord_id,
+            language as i32,
+            gender as i32,
+            commands_enabled,
+            now
+        )
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn find_guild(&self, discord_id: impl ToString) -> Result<Option<DbGuild>> {
+        let discord_id = discord_id.to_string();
+        debug!("checking for guild {:?}", discord_id);
+        let res = sqlx::query_as!(
+            DbGuild,
+            r#"
+            SELECT
+                discord_id,
+                language as "language: DbLanguage",
+                gender as "gender: DbGender",
+                commands_enabled,
+                insert_tm,
+                update_tm
+            FROM guilds
+            WHERE discord_id = $1
+            "#,
+            discord_id
+        )
+        .fetch_optional(&self.0)
+        .await?;
+        debug!("guild lookup: {:?}", res);
+        Ok(res)
     }
 }
