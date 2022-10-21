@@ -84,18 +84,20 @@ impl AppCmd for DisableEmoteCommands {
         trace!("finding guild settings");
 
         if is_commands_enabled(&context.data, guild_id).await? {
+            trace!("disabling commands");
+            disable_emote_commands(guild_id, context).await?;
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
-                    data.ephemeral(true)
-                        .content("Guild commands are already enabled")
+                    data.ephemeral(true).content("Guild commands disabled!")
                 })
             })
             .await?;
         } else {
-            disable_emote_commands(guild_id, context).await?;
+            trace!("commands are already disabled");
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
-                    data.ephemeral(true).content("Guild commands enabled!")
+                    data.ephemeral(true)
+                        .content("Guild commands are already disabled")
                 })
             })
             .await?;
