@@ -18,78 +18,78 @@ pub type Result<T> = std::result::Result<T, DbError>;
 
 #[derive(sqlx::Type, Default, Debug, Clone, Copy, PartialEq, Eq, EnumIter, FromRepr)]
 #[repr(i32)]
-pub enum DbUserLanguage {
+pub enum DbLanguage {
     #[default]
     En = 0,
     Ja = 1,
 }
 
-impl DbUserLanguage {
+impl DbLanguage {
     pub fn to_string_en(self) -> &'static str {
         match self {
-            DbUserLanguage::En => "English",
-            DbUserLanguage::Ja => "Japanese",
+            DbLanguage::En => "English",
+            DbLanguage::Ja => "Japanese",
         }
     }
 
     pub fn to_string_ja(self) -> &'static str {
         match self {
-            DbUserLanguage::En => "英語",
-            DbUserLanguage::Ja => "日本語",
+            DbLanguage::En => "英語",
+            DbLanguage::Ja => "日本語",
         }
     }
 
-    pub fn to_string(self, language: DbUserLanguage) -> &'static str {
+    pub fn to_string(self, language: DbLanguage) -> &'static str {
         match language {
-            DbUserLanguage::En => self.to_string_en(),
-            DbUserLanguage::Ja => self.to_string_ja(),
+            DbLanguage::En => self.to_string_en(),
+            DbLanguage::Ja => self.to_string_ja(),
         }
     }
 
     pub fn with_emote_data<'a>(&'a self, emote_data: &'a EmoteData) -> &LogMessagePair {
         match self {
-            DbUserLanguage::En => &emote_data.en,
-            DbUserLanguage::Ja => &emote_data.ja,
+            DbLanguage::En => &emote_data.en,
+            DbLanguage::Ja => &emote_data.ja,
         }
     }
 }
 
 #[derive(sqlx::Type, Default, Debug, Clone, Copy, PartialEq, Eq, EnumIter, FromRepr)]
 #[repr(i32)]
-pub enum DbUserGender {
+pub enum DbGender {
     #[default]
     M = 0,
     F = 1,
 }
 
-impl DbUserGender {
+impl DbGender {
     pub fn to_string_en(self) -> &'static str {
         match self {
-            DbUserGender::M => "Male",
-            DbUserGender::F => "Female",
+            DbGender::M => "Male",
+            DbGender::F => "Female",
         }
     }
 
     pub fn to_string_ja(self) -> &'static str {
         match self {
-            DbUserGender::M => "男性",
-            DbUserGender::F => "女性",
+            DbGender::M => "男性",
+            DbGender::F => "女性",
         }
     }
 
-    pub fn to_string(self, language: DbUserLanguage) -> &'static str {
+    pub fn to_string(self, language: DbLanguage) -> &'static str {
         match language {
-            DbUserLanguage::En => self.to_string_en(),
-            DbUserLanguage::Ja => self.to_string_ja(),
+            DbLanguage::En => self.to_string_en(),
+            DbLanguage::Ja => self.to_string_ja(),
         }
     }
 }
 
-impl From<DbUserGender> for Gender {
-    fn from(g: DbUserGender) -> Self {
+impl From<DbGender> for Gender {
+    fn from(g: DbGender) -> Self {
         match g {
-            DbUserGender::M => Gender::Male,
-            DbUserGender::F => Gender::Female,
+            DbGender::M => Gender::Male,
+            DbGender::F => Gender::Female,
         }
     }
 }
@@ -98,8 +98,8 @@ impl From<DbUserGender> for Gender {
 #[sqlx(type_name = "user")]
 pub struct DbUser {
     pub discord_id: String,
-    pub language: DbUserLanguage,
-    pub gender: DbUserGender,
+    pub language: DbLanguage,
+    pub gender: DbGender,
     pub insert_tm: time::OffsetDateTime,
     pub update_tm: time::OffsetDateTime,
 }
@@ -108,8 +108,8 @@ impl Default for DbUser {
     fn default() -> Self {
         DbUser {
             discord_id: String::default(),
-            language: DbUserLanguage::default(),
-            gender: DbUserGender::default(),
+            language: DbLanguage::default(),
+            gender: DbGender::default(),
             insert_tm: OffsetDateTime::now_utc(),
             update_tm: OffsetDateTime::now_utc(),
         }
@@ -121,11 +121,11 @@ impl DbUser {
         &self.discord_id
     }
 
-    pub fn language(&self) -> &DbUserLanguage {
+    pub fn language(&self) -> &DbLanguage {
         &self.language
     }
 
-    pub fn gender(&self) -> &DbUserGender {
+    pub fn gender(&self) -> &DbGender {
         &self.gender
     }
 }
@@ -144,7 +144,7 @@ impl DbUserOpt {
         self.0
     }
 
-    pub fn language(&self) -> DbUserLanguage {
+    pub fn language(&self) -> DbLanguage {
         self.0
             .as_ref()
             .map(DbUser::language)
@@ -152,7 +152,7 @@ impl DbUserOpt {
             .unwrap_or_default()
     }
 
-    pub fn gender(&self) -> DbUserGender {
+    pub fn gender(&self) -> DbGender {
         self.0
             .as_ref()
             .map(DbUser::gender)
@@ -168,8 +168,8 @@ impl Db {
     pub async fn upsert_user(
         &self,
         discord_id: String,
-        language: DbUserLanguage,
-        gender: DbUserGender,
+        language: DbLanguage,
+        gender: DbGender,
     ) -> Result<()> {
         debug!("upserting user {} {:?} {:?}", discord_id, language, gender);
         let user = DbUser {
@@ -204,8 +204,8 @@ impl Db {
             r#"
             SELECT
                 discord_id,
-                language as "language: DbUserLanguage",
-                gender as "gender: DbUserGender",
+                language as "language: DbLanguage",
+                gender as "gender: DbGender",
                 insert_tm,
                 update_tm
             FROM users

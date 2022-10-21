@@ -19,7 +19,7 @@ use strum::IntoEnumIterator;
 use thiserror::Error;
 
 use crate::{
-    db::{DbUser, DbUserGender, DbUserLanguage},
+    db::{DbGender, DbLanguage, DbUser},
     HandlerError, INTERACTION_TIMEOUT,
 };
 
@@ -94,7 +94,7 @@ async fn handle_interactions(
                     error!("unexpected gender selected (not numeric): {}", value);
                     return Err(HandlerError::UnexpectedData);
                 };
-                let gender = match DbUserGender::from_repr(value) {
+                let gender = match DbGender::from_repr(value) {
                     Some(g) => g,
                     None => {
                         error!("unexpected gender selected (invalid number): {}", value);
@@ -112,7 +112,7 @@ async fn handle_interactions(
                     error!("unexpected language selected (not numeric): {}", value);
                     return Err(HandlerError::UnexpectedData);
                 };
-                let lang = match DbUserLanguage::from_repr(value) {
+                let lang = match DbLanguage::from_repr(value) {
                     Some(g) => g,
                     None => {
                         error!("unexpected language selected (invalid number): {}", value);
@@ -167,7 +167,7 @@ fn create_user_settings_components<'a>(
     create_components.create_action_row(|row| {
         row.create_select_menu(|menu| {
             menu.custom_id(Ids::GenderSelect).options(|opts| {
-                DbUserGender::iter().for_each(|gender| {
+                DbGender::iter().for_each(|gender| {
                     opts.create_option(|o| {
                         o.label(gender.to_string(user.language))
                             .value(gender as i32)
@@ -181,7 +181,7 @@ fn create_user_settings_components<'a>(
     create_components.create_action_row(|row| {
         row.create_select_menu(|menu| {
             menu.custom_id(Ids::LanguageSelect).options(|opts| {
-                DbUserLanguage::iter().for_each(|lang| {
+                DbLanguage::iter().for_each(|lang| {
                     opts.create_option(|o| {
                         o.label(lang.to_string(user.language))
                             .value(lang as i32)
