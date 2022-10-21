@@ -8,22 +8,28 @@ use strum_macros::{AsRefStr, Display, EnumIter, EnumString};
 
 use crate::{Handler, HandlerError};
 
-use self::enable_guild_commands::EnableGuildCommands;
+use self::{
+    disable_emote_commands::DisableEmoteCommands, enable_emote_commands::EnableEmoteCommands,
+};
 
 use super::AppCmd;
 
-pub mod enable_guild_commands;
+pub mod disable_emote_commands;
+pub mod enable_emote_commands;
 
 #[derive(Debug, Clone, Copy, AsRefStr, Display, EnumString, EnumIter)]
 pub enum GuildCommands {
-    #[strum(serialize = "enable-commands")]
-    EnableCommands,
+    #[strum(serialize = "enable-emote-commands")]
+    EnableEmoteCommands,
+    #[strum(serialize = "disable-emote-commands")]
+    DisableEmoteCommands,
 }
 
 impl GuildCommands {
     pub fn to_application_command(self) -> CreateApplicationCommand {
         match self {
-            GuildCommands::EnableCommands => EnableGuildCommands::to_application_command(),
+            GuildCommands::EnableEmoteCommands => EnableEmoteCommands::to_application_command(),
+            GuildCommands::DisableEmoteCommands => DisableEmoteCommands::to_application_command(),
         }
     }
 
@@ -38,7 +44,12 @@ impl GuildCommands {
         context: &Context,
     ) -> Result<(), HandlerError> {
         match self {
-            GuildCommands::EnableCommands => EnableGuildCommands::handle(cmd, handler, context),
+            GuildCommands::EnableEmoteCommands => {
+                EnableEmoteCommands::handle(cmd, handler, context)
+            }
+            GuildCommands::DisableEmoteCommands => {
+                DisableEmoteCommands::handle(cmd, handler, context)
+            }
         }
         .await
     }
