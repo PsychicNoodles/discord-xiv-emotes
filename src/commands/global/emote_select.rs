@@ -25,10 +25,7 @@ use xiv_emote_parser::log_message::{
     LogMessageAnswers,
 };
 
-use crate::{
-    commands::AppCmd, send_emote, HandlerError, SendTargetType, INTERACTION_TIMEOUT,
-    UNTARGETED_TARGET,
-};
+use crate::{commands::AppCmd, HandlerError, INTERACTION_TIMEOUT, UNTARGETED_TARGET};
 
 use super::GlobalCommands;
 
@@ -541,33 +538,33 @@ impl AppCmd for EmoteSelectCmd {
             let condition_texts =
                 extract_condition_texts(&language.with_emote_data(messages).targeted)?;
             let answers = LogMessageAnswers::new(origin, target)?;
-            send_emote(
-                condition_texts,
-                answers,
-                res.target.map(|t| t.to_string()),
-                context,
-                SendTargetType::Channel {
-                    channel: &cmd.channel_id,
-                    author: &cmd.user,
-                },
-            )
-            .await?;
+            handler
+                .send_emote(
+                    context,
+                    condition_texts,
+                    answers,
+                    &msg.author,
+                    res.target.map(|t| t.to_string()),
+                    cmd.channel_id,
+                    None,
+                )
+                .await?;
         } else {
             trace!("no message target");
             let condition_texts =
                 extract_condition_texts(&language.with_emote_data(messages).untargeted)?;
             let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
-            send_emote(
-                condition_texts,
-                answers,
-                None,
-                context,
-                SendTargetType::Channel {
-                    channel: &cmd.channel_id,
-                    author: &cmd.user,
-                },
-            )
-            .await?;
+            handler
+                .send_emote(
+                    context,
+                    condition_texts,
+                    answers,
+                    &msg.author,
+                    None,
+                    cmd.channel_id,
+                    None,
+                )
+                .await?;
         };
 
         Ok(())

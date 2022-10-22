@@ -9,19 +9,22 @@ use strum_macros::{AsRefStr, Display, EnumIter, EnumString};
 
 use crate::{Handler, HandlerError};
 
-use self::{emote_select::EmoteSelectCmd, user_settings::UserSettingsCmd};
+use self::{emote::EmoteCmd, emote_select::EmoteSelectCmd, user_settings::UserSettingsCmd};
 
 use super::{AppCmd, CommandsEnum};
 
+pub mod emote;
 pub mod emote_select;
 pub mod user_settings;
 
 #[derive(Debug, Clone, Copy, AsRefStr, Display, EnumString, EnumIter)]
 pub enum GlobalCommands {
-    #[strum(serialize = "emote")]
+    #[strum(serialize = "emote-select")]
     EmoteSelect,
     #[strum(serialize = "settings")]
     UserSettings,
+    #[strum(serialize = "emote")]
+    Emote,
 }
 
 impl GlobalCommands {
@@ -29,6 +32,7 @@ impl GlobalCommands {
         match self {
             GlobalCommands::EmoteSelect => EmoteSelectCmd::to_application_command(),
             GlobalCommands::UserSettings => UserSettingsCmd::to_application_command(),
+            GlobalCommands::Emote => EmoteCmd::to_application_command(),
         }
     }
 
@@ -48,6 +52,7 @@ impl CommandsEnum for GlobalCommands {
         match self {
             GlobalCommands::EmoteSelect => EmoteSelectCmd::handle(cmd, handler, context),
             GlobalCommands::UserSettings => UserSettingsCmd::handle(cmd, handler, context),
+            GlobalCommands::Emote => EmoteCmd::handle(cmd, handler, context),
         }
         .await
     }

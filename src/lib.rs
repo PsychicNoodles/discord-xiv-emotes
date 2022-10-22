@@ -12,14 +12,13 @@ use thiserror::Error;
 use serenity::{
     async_trait,
     constants::MESSAGE_CODE_LIMIT,
-    model::{
-        prelude::{
-            command::Command,
-            interaction::{application_command::ApplicationCommandInteraction, Interaction},
-            ChannelId, Message, Ready,
-        },
-        user::User,
+    model::prelude::ChannelId,
+    model::prelude::{
+        command::Command,
+        interaction::{application_command::ApplicationCommandInteraction, Interaction},
+        Message, Ready,
     },
+    prelude::Mentionable,
     prelude::{Context, EventHandler, GatewayIntents},
     utils::MessageBuilder,
     Client,
@@ -41,7 +40,7 @@ pub struct Handler {
 }
 
 // untargeted messages shouldn't reference target character at all, but just in case
-const UNTARGETED_TARGET: Character =
+pub const UNTARGETED_TARGET: Character =
     Character::new("Godbert Manderville", Gender::Male, false, false);
 const PREFIX: &str = "!";
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(60);
@@ -112,120 +111,6 @@ pub fn split_by_max_message_len(
     res
 }
 
-async fn check_other_cmd(
-    mparts: &[&str],
-    log_message_repo: &LogMessageRepository,
-    context: &Context,
-    msg: &Message,
-) -> Result<bool, HandlerError> {
-    match mparts[..] {
-        [_cmd] if _cmd == "emotes" => {
-            trace!("emotes command");
-            const EMOTE_LIST_PREFIX: &str = "List of emotes";
-            let results = split_by_max_message_len(
-                EMOTE_LIST_PREFIX,
-                log_message_repo.emote_list_by_id().cloned(),
-            );
-            debug!("emotes response is {} messages long", results.len());
-
-            for res in results {
-                msg.reply(context, res).await?;
-            }
-            Ok(true)
-        }
-        [_cmd] if _cmd == "help" => {
-            trace!("help command");
-            msg.reply(context, format!("Use emotes from FFXIV in chat, optionally with a (mentionable) target! Use {}emotes for a list of options.", PREFIX)).await?;
-            Ok(true)
-        }
-        _ => Ok(false),
-    }
-}
-
-async fn process_input(
-    mparts: &[&str],
-    log_message_repo: &LogMessageRepository,
-    db: &Db,
-    context: &Context,
-    msg: &Message,
-) -> Result<(), HandlerError> {
-    if check_other_cmd(mparts, log_message_repo, context, msg).await? {
-        debug!("non-emote command");
-        return Ok(());
-    }
-
-    let (emote, mention) = mparts.split_first().ok_or(HandlerError::EmptyCommand)?;
-    let emote = ["/", emote].concat();
-    let mention = if mention.is_empty() {
-        None
-    } else {
-        Some(mention.join(" "))
-    };
-
-    trace!("parsed command and mention: {:?} {:?}", emote, mention);
-
-    let user = db.find_user(msg.author.id).await?;
-    let language = user.language();
-    let gender = user.gender();
-    trace!("language is {:?}, gender is {:?}", language, gender);
-
-    match (&emote, mention) {
-        (emote, Some(mention)) if log_message_repo.contains_emote(emote) => {
-            debug!("emote with mention");
-            let messages = log_message_repo.messages(emote)?;
-            let origin = Character::new_from_string(
-                msg.author_nick(&context)
-                    .await
-                    .unwrap_or_else(|| msg.author.name.clone()),
-                gender.into(),
-                true,
-                false,
-            );
-            trace!("message origin: {:?}", origin);
-            let target = Character::new_from_string(mention.to_string(), Gender::Male, true, false);
-            trace!("message target: {:?}", target);
-            let answers = LogMessageAnswers::new(origin, target)?;
-            let condition_texts =
-                extract_condition_texts(&language.with_emote_data(messages).targeted)?;
-            send_emote(
-                condition_texts,
-                answers,
-                Some(mention),
-                context,
-                SendTargetType::Message(msg),
-            )
-            .await?;
-            Ok(())
-        }
-        (emote, None) if log_message_repo.contains_emote(emote) => {
-            debug!("emote without mention");
-            let messages = log_message_repo.messages(emote)?;
-            let origin = Character::new_from_string(
-                msg.author_nick(&context)
-                    .await
-                    .unwrap_or_else(|| msg.author.name.clone()),
-                gender.into(),
-                true,
-                false,
-            );
-            trace!("message origin: {:?}", origin);
-            let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
-            let condition_texts =
-                extract_condition_texts(&language.with_emote_data(messages).untargeted)?;
-            send_emote(
-                condition_texts,
-                answers,
-                None,
-                context,
-                SendTargetType::Message(msg),
-            )
-            .await?;
-            Ok(())
-        }
-        (emote, _) => Err(HandlerError::UnrecognizedEmote(emote.to_string())),
-    }
-}
-
 // async fn determine_mention(msg: &Message, context: &Context) -> Option<Target> {
 //     if let Some(user) = msg.mentions.first() {
 //         trace!("mention appears to be a user");
@@ -246,63 +131,6 @@ async fn process_input(
 //     }
 // }
 
-#[derive(Debug, Clone, Copy)]
-enum SendTargetType<'a> {
-    Message(&'a Message),
-    Channel {
-        channel: &'a ChannelId,
-        author: &'a User,
-    },
-}
-
-async fn send_emote<'a>(
-    condition_texts: ConditionTexts,
-    answers: impl Answers,
-    target_name: Option<String>,
-    context: &Context,
-    target_type: SendTargetType<'a>,
-) -> Result<(), HandlerError> {
-    let mut msg_builder = MessageBuilder::new();
-    let author = match target_type {
-        SendTargetType::Message(m) => &m.author,
-        SendTargetType::Channel { author, .. } => author,
-    };
-    let mut errs: Vec<_> = condition_texts
-        .map_texts_mut(&answers, |text| {
-            match text {
-                Text::Dynamic(d) => match d {
-                    DynamicText::NpcOriginName
-                    | DynamicText::PlayerOriginNameEn
-                    | DynamicText::PlayerOriginNameJp => msg_builder.mention(author),
-                    DynamicText::NpcTargetName
-                    | DynamicText::PlayerTargetNameEn
-                    | DynamicText::PlayerTargetNameJp => match &target_name {
-                        Some(n) => msg_builder.push(n),
-                        None => return Some(HandlerError::TargetNone),
-                    },
-                },
-                Text::Static(s) => msg_builder.push(s),
-            };
-            None
-        })
-        .collect();
-    if !errs.is_empty() {
-        error!("errors during text processing: {:?}", errs);
-        return Err(errs.remove(0));
-    }
-    if let Err(e) = match target_type {
-        SendTargetType::Message(msg) => msg.reply(context, msg_builder.build()).await,
-        SendTargetType::Channel { channel, .. } => {
-            channel
-                .send_message(context, |c| c.content(msg_builder.build()))
-                .await
-        }
-    } {
-        error!("failed to send emote message: {:?}", e);
-    }
-    Ok(())
-}
-
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
@@ -313,7 +141,7 @@ impl EventHandler for Handler {
                 *first = first.strip_prefix(PREFIX).unwrap_or(first);
             }
             debug!("message parts: {:?}", mparts);
-            match process_input(&mparts, &self.log_message_repo, &self.db, &context, &msg).await {
+            match self.process_input(&context, &mparts, &msg).await {
                 Ok(v) => v,
                 Err(err) => {
                     error!("error during message processing: {:?}", err);
@@ -386,6 +214,173 @@ impl EventHandler for Handler {
 }
 
 impl Handler {
+    pub async fn send_emote(
+        &self,
+        context: &Context,
+        condition_texts: ConditionTexts,
+        answers: impl Answers,
+        author: &impl Mentionable,
+        target_name: Option<String>,
+        channel_id: ChannelId,
+        ref_msg: Option<&Message>,
+    ) -> Result<(), HandlerError> {
+        let mut msg_builder = MessageBuilder::new();
+        let mut errs: Vec<_> = condition_texts
+            .map_texts_mut(&answers, |text| {
+                match text {
+                    Text::Dynamic(d) => match d {
+                        DynamicText::NpcOriginName
+                        | DynamicText::PlayerOriginNameEn
+                        | DynamicText::PlayerOriginNameJp => msg_builder.mention(author),
+                        DynamicText::NpcTargetName
+                        | DynamicText::PlayerTargetNameEn
+                        | DynamicText::PlayerTargetNameJp => match &target_name {
+                            Some(n) => msg_builder.push(n),
+                            None => return Some(HandlerError::TargetNone),
+                        },
+                    },
+                    Text::Static(s) => msg_builder.push(s),
+                };
+                None
+            })
+            .collect();
+        if !errs.is_empty() {
+            error!("errors during text processing: {:?}", errs);
+            return Err(errs.remove(0));
+        }
+        if let Err(e) = channel_id
+            .send_message(context, |m| {
+                if let Some(r) = ref_msg {
+                    m.reference_message(r);
+                }
+                m.content(msg_builder.build())
+            })
+            .await
+        {
+            error!("failed to send emote message: {:?}", e);
+            return Err(HandlerError::Send(e));
+        }
+        Ok(())
+    }
+
+    async fn process_input(
+        &self,
+        context: &Context,
+        mparts: &[&str],
+        msg: &Message,
+    ) -> Result<(), HandlerError> {
+        if self.check_other_cmd(context, mparts, msg).await? {
+            debug!("non-emote command");
+            return Ok(());
+        }
+
+        let (emote, mention) = mparts.split_first().ok_or(HandlerError::EmptyCommand)?;
+        let emote = ["/", emote].concat();
+        let mention = if mention.is_empty() {
+            None
+        } else {
+            Some(mention.join(" "))
+        };
+
+        trace!("parsed command and mention: {:?} {:?}", emote, mention);
+
+        let user = self.db.find_user(msg.author.id).await?;
+        let language = user.language();
+        let gender = user.gender();
+        trace!("language is {:?}, gender is {:?}", language, gender);
+
+        match (&emote, mention) {
+            (emote, Some(mention)) if self.log_message_repo.contains_emote(emote) => {
+                debug!("emote with mention");
+                let messages = self.log_message_repo.messages(emote)?;
+                let origin = Character::new_from_string(
+                    msg.author_nick(context)
+                        .await
+                        .unwrap_or_else(|| msg.author.name.clone()),
+                    gender.into(),
+                    true,
+                    false,
+                );
+                trace!("message origin: {:?}", origin);
+                let target =
+                    Character::new_from_string(mention.to_string(), Gender::Male, true, false);
+                trace!("message target: {:?}", target);
+                let answers = LogMessageAnswers::new(origin, target)?;
+                let condition_texts =
+                    extract_condition_texts(&language.with_emote_data(messages).targeted)?;
+                self.send_emote(
+                    context,
+                    condition_texts,
+                    answers,
+                    &msg.author,
+                    Some(mention),
+                    msg.channel_id,
+                    Some(msg),
+                )
+                .await?;
+                Ok(())
+            }
+            (emote, None) if self.log_message_repo.contains_emote(emote) => {
+                debug!("emote without mention");
+                let messages = self.log_message_repo.messages(emote)?;
+                let origin = Character::new_from_string(
+                    msg.author_nick(context)
+                        .await
+                        .unwrap_or_else(|| msg.author.name.clone()),
+                    gender.into(),
+                    true,
+                    false,
+                );
+                trace!("message origin: {:?}", origin);
+                let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
+                let condition_texts =
+                    extract_condition_texts(&language.with_emote_data(messages).untargeted)?;
+                self.send_emote(
+                    context,
+                    condition_texts,
+                    answers,
+                    &msg.author,
+                    None,
+                    msg.channel_id,
+                    Some(msg),
+                )
+                .await?;
+                Ok(())
+            }
+            (emote, _) => Err(HandlerError::UnrecognizedEmote(emote.to_string())),
+        }
+    }
+
+    async fn check_other_cmd(
+        &self,
+        context: &Context,
+        mparts: &[&str],
+        msg: &Message,
+    ) -> Result<bool, HandlerError> {
+        match mparts[..] {
+            [_cmd] if _cmd == "emotes" => {
+                trace!("emotes command");
+                const EMOTE_LIST_PREFIX: &str = "List of emotes";
+                let results = split_by_max_message_len(
+                    EMOTE_LIST_PREFIX,
+                    self.log_message_repo.emote_list_by_id().cloned(),
+                );
+                debug!("emotes response is {} messages long", results.len());
+
+                for res in results {
+                    msg.reply(context, res).await?;
+                }
+                Ok(true)
+            }
+            [_cmd] if _cmd == "help" => {
+                trace!("help command");
+                msg.reply(context, format!("Use emotes from FFXIV in chat, optionally with a (mentionable) target! Use {}emotes for a list of options.", PREFIX)).await?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     async fn try_handle_commands<T>(
         &self,
         context: &Context,
