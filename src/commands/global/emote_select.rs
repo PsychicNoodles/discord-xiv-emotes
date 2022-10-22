@@ -544,7 +544,7 @@ impl AppCmd for EmoteSelectCmd {
                     condition_texts,
                     answers,
                     &msg.author,
-                    res.target.map(|t| t.to_string()),
+                    res.target.map(|t| t.to_string()).as_ref(),
                     cmd.channel_id,
                     None,
                 )

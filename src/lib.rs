@@ -220,7 +220,7 @@ impl Handler {
         condition_texts: ConditionTexts,
         answers: impl Answers,
         author: &impl Mentionable,
-        target_name: Option<String>,
+        target_name: Option<&String>,
         channel_id: ChannelId,
         ref_msg: Option<&Message>,
     ) -> Result<(), HandlerError> {
@@ -313,7 +313,7 @@ impl Handler {
                     condition_texts,
                     answers,
                     &msg.author,
-                    Some(mention),
+                    Some(&mention),
                     msg.channel_id,
                     Some(msg),
                 )

@@ -1,15 +1,25 @@
+use std::borrow::Cow;
+
 use async_trait::async_trait;
 use log::*;
 use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::{
         command::{CommandOptionType, CommandType},
-        interaction::application_command::{ApplicationCommandInteraction, CommandData},
+        interaction::{
+            application_command::{ApplicationCommandInteraction, CommandData},
+            InteractionResponseType,
+        },
     },
     prelude::{Context, Mentionable},
 };
+use xiv_emote_parser::log_message::{
+    condition::{Character, Gender},
+    parser::extract_condition_texts,
+    LogMessageAnswers,
+};
 
-use crate::{commands::AppCmd, Handler, HandlerError};
+use crate::{commands::AppCmd, Handler, HandlerError, PREFIX, UNTARGETED_TARGET};
 
 use super::GlobalCommands;
 
@@ -91,8 +101,17 @@ impl AppCmd for EmoteCmd {
         let target = resolve_mention(&cmd.data, context);
         trace!("target is {:?}", target);
 
-        trace!("checking if emote exists");
-        if !handler.log_message_repo.contains_emote(emote) {
+        let emote = match emote.get(0..0) {
+            None => {
+                error!("emote is empty");
+                return Err(HandlerError::UnrecognizedEmote("(empty)".to_string()));
+            }
+            Some("/") => Cow::Borrowed(*emote),
+            Some(PREFIX) => Cow::Borrowed(emote.trim_start_matches(PREFIX)),
+            Some(_) => Cow::Owned(["/", emote].concat()),
+        };
+        trace!("checking if emote exists: {:?}", emote);
+        if !handler.log_message_repo.contains_emote(&emote) {
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
                     data.ephemeral(true).content(
@@ -103,6 +122,75 @@ impl AppCmd for EmoteCmd {
             .await?;
             return Ok(());
         }
+
+        let messages = handler.log_message_repo.messages(&emote)?;
+
+        let author_name = if let Some(guild_id) = cmd.guild_id {
+            cmd.user
+                .nick_in(&context, guild_id)
+                .await
+                .unwrap_or_else(|| cmd.user.name.clone())
+        } else {
+            cmd.user.name.clone()
+        };
+
+        let user = handler.db.find_user(cmd.user.id).await?;
+        let language = user.language();
+        let gender = user.gender();
+
+        let origin = Character::new_from_string(author_name, gender.into(), true, false);
+        trace!("message origin: {:?}", origin);
+        if let Some(target_name) = &target {
+            // todo use gender from db
+            let msg_target =
+                Character::new_from_string(target_name.clone(), Gender::Male, true, false);
+            trace!("message target: {:?}", msg_target);
+            let condition_texts =
+                extract_condition_texts(&language.with_emote_data(messages).targeted)?;
+            let answers = LogMessageAnswers::new(origin, msg_target)?;
+            handler
+                .send_emote(
+                    context,
+                    condition_texts,
+                    answers,
+                    &cmd.user,
+                    target.as_ref(),
+                    cmd.channel_id,
+                    None,
+                )
+                .await?;
+        } else {
+            trace!("no message target");
+            let condition_texts =
+                extract_condition_texts(&language.with_emote_data(messages).untargeted)?;
+            let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
+            handler
+                .send_emote(
+                    context,
+                    condition_texts,
+                    answers,
+                    &cmd.user,
+                    None,
+                    cmd.channel_id,
+                    None,
+                )
+                .await?;
+        }
+
+        cmd.create_interaction_response(context, |res| {
+            res.interaction_response_data(|d| {
+                d.ephemeral(true).content(format!(
+                    "Emote sent! ({}{})",
+                    emote,
+                    if let Some(t) = &target {
+                        [" ".to_string(), t.to_string()].concat()
+                    } else {
+                        "".to_string()
+                    }
+                ))
+            })
+        })
+        .await?;
 
         Ok(())
     }
