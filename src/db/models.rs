@@ -120,6 +120,16 @@ impl DbUser {
     }
 }
 
+impl From<DbGuild> for DbUser {
+    fn from(g: DbGuild) -> Self {
+        DbUser {
+            language: g.language,
+            gender: g.gender,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DbUserOpt(pub Option<DbUser>);
 

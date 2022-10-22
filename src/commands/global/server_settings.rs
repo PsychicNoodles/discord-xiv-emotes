@@ -3,15 +3,12 @@ use futures::StreamExt;
 use log::*;
 use serenity::{
     builder::{CreateApplicationCommand, CreateInteractionResponse},
-    model::{
-        prelude::{
-            command::CommandType,
-            interaction::{
-                application_command::ApplicationCommandInteraction, InteractionResponseType,
-            },
-            Message,
+    model::prelude::{
+        command::CommandType,
+        interaction::{
+            application_command::ApplicationCommandInteraction, InteractionResponseType,
         },
-        user::User,
+        Guild, Message,
     },
     prelude::Context,
 };
@@ -20,8 +17,8 @@ use thiserror::Error;
 
 use crate::{
     commands::AppCmd,
-    db::models::{DbGender, DbLanguage, DbUser},
-    HandlerError, INTERACTION_TIMEOUT,
+    db::models::{DbGender, DbGuild, DbLanguage},
+    Handler, HandlerError, INTERACTION_TIMEOUT,
 };
 
 use super::GlobalCommands;
@@ -74,9 +71,9 @@ impl TryFrom<&str> for Ids {
 async fn handle_interactions(
     context: &Context,
     msg: &Message,
-    author: &User,
-    mut user: DbUser,
-) -> Result<DbUser, HandlerError> {
+    guild_name: impl AsRef<str>,
+    mut db_guild: DbGuild,
+) -> Result<DbGuild, HandlerError> {
     while let Some(interaction) = msg
         .await_component_interactions(context)
         .collect_limit(20)
@@ -103,7 +100,7 @@ async fn handle_interactions(
                     }
                 };
                 debug!("gender selected: {:?}", gender);
-                user.gender = gender;
+                db_guild.gender = gender;
             }
             Ok(Ids::LanguageSelect) => {
                 let value = &interaction.data.values[0];
@@ -121,7 +118,7 @@ async fn handle_interactions(
                     }
                 };
                 debug!("language selected: {:?}", lang);
-                user.language = lang;
+                db_guild.language = lang;
             }
             Ok(Ids::Submit) => {
                 interaction
@@ -132,7 +129,7 @@ async fn handle_interactions(
                             })
                     })
                     .await?;
-                return Ok(user);
+                return Ok(db_guild);
             }
             Err(e) => {
                 error!("unexpected component id: {}", e);
@@ -141,7 +138,12 @@ async fn handle_interactions(
 
         interaction
             .create_interaction_response(context, |res| {
-                create_response(res, InteractionResponseType::UpdateMessage, author, &user)
+                create_response(
+                    res,
+                    InteractionResponseType::UpdateMessage,
+                    guild_name.as_ref(),
+                    &db_guild,
+                )
             })
             .await?;
     }
@@ -151,21 +153,21 @@ async fn handle_interactions(
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
     kind: InteractionResponseType,
-    author: &User,
-    user: &DbUser,
+    guild_name: impl AsRef<str>,
+    db_guild: &DbGuild,
 ) -> &'a mut CreateInteractionResponse<'b> {
     res.kind(kind).interaction_response_data(|data| {
         data.ephemeral(true)
-            .content(format!("User settings for {}", author.name))
+            .content(format!("Server settings for {}", guild_name.as_ref()))
             .components(|c| {
                 c.create_action_row(|row| {
                     row.create_select_menu(|menu| {
                         menu.custom_id(Ids::GenderSelect).options(|opts| {
                             DbGender::iter().for_each(|gender| {
                                 opts.create_option(|o| {
-                                    o.label(gender.to_string(user.language))
+                                    o.label(gender.to_string(db_guild.language))
                                         .value(gender as i32)
-                                        .default_selection(user.gender == gender)
+                                        .default_selection(db_guild.gender == gender)
                                 });
                             });
                             opts
@@ -177,9 +179,9 @@ fn create_response<'a, 'b>(
                         menu.custom_id(Ids::LanguageSelect).options(|opts| {
                             DbLanguage::iter().for_each(|lang| {
                                 opts.create_option(|o| {
-                                    o.label(lang.to_string(user.language))
+                                    o.label(lang.to_string(db_guild.language))
                                         .value(lang as i32)
-                                        .default_selection(user.language == lang)
+                                        .default_selection(db_guild.language == lang)
                                 });
                             });
                             opts
@@ -196,69 +198,63 @@ fn create_response<'a, 'b>(
     })
 }
 
-async fn determine_user_settings(
-    handler: &crate::Handler,
-    discord_id: String,
-    guild_id: Option<impl ToString>,
-) -> Result<DbUser, HandlerError> {
-    if let Some(user) = handler.db.find_user(discord_id.clone()).await? {
-        return Ok(user);
-    }
-    if let Some(guild_id) = guild_id {
-        if let Some(guild) = handler.db.find_guild(guild_id).await? {
-            return Ok(DbUser {
-                discord_id,
-                ..DbUser::from(guild)
-            });
-        };
-    }
-    Ok(DbUser::default())
-}
-
-pub struct UserSettingsCmd;
+pub struct ServerSettingsCmd;
 
 #[async_trait]
-impl AppCmd for UserSettingsCmd {
+impl AppCmd for ServerSettingsCmd {
     fn to_application_command() -> CreateApplicationCommand
     where
         Self: Sized,
     {
         let mut cmd = CreateApplicationCommand::default();
-        cmd.name(GlobalCommands::UserSettings)
+        cmd.name(GlobalCommands::ServerSettings)
             .kind(CommandType::ChatInput)
-            .description("Change personal chat message settings")
-            .dm_permission(true);
+            .description("Change server-wide chat message settings");
         cmd
     }
 
     async fn handle(
         cmd: &ApplicationCommandInteraction,
-        handler: &crate::Handler,
+        handler: &Handler,
         context: &Context,
     ) -> Result<(), HandlerError>
     where
         Self: Sized,
     {
-        trace!("finding existing user");
-        let discord_id = cmd.user.id.to_string();
-        let user = determine_user_settings(handler, discord_id, cmd.guild_id).await?;
+        trace!("finding existing guild");
+        let guild_id = cmd.guild_id.ok_or(HandlerError::NotGuild)?;
+        let discord_id = guild_id.to_string();
+        let guild_name = context.cache.guild_field(guild_id, |g| g.name.clone());
+        let guild_name = if let Some(name) = guild_name {
+            name
+        } else {
+            Guild::get(context, guild_id).await?.name
+        };
+        let db_guild = handler
+            .db
+            .find_guild(discord_id.clone())
+            .await?
+            .unwrap_or(DbGuild {
+                discord_id,
+                ..Default::default()
+            });
 
         cmd.create_interaction_response(context, |res| {
             create_response(
                 res,
                 InteractionResponseType::ChannelMessageWithSource,
-                &cmd.user,
-                &user,
+                &guild_name,
+                &db_guild,
             )
         })
         .await?;
         let msg = cmd.get_interaction_response(context).await?;
         trace!("awaiting interactions");
-        let user = handle_interactions(context, &msg, &cmd.user, user).await?;
+        let db_guild = handle_interactions(context, &msg, &guild_name, db_guild).await?;
 
         handler
             .db
-            .upsert_user(user.discord_id, user.language, user.gender)
+            .upsert_guild(db_guild.discord_id, db_guild.language, db_guild.gender)
             .await?;
 
         Ok(())
