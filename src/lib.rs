@@ -2,7 +2,7 @@ mod commands;
 mod db;
 
 use commands::CommandsEnum;
-use db::Db;
+use db::{models::DbUser, Db};
 use futures::future::{try_join_all, TryFutureExt};
 use log::*;
 use sqlx::PgPool;
@@ -12,7 +12,6 @@ use thiserror::Error;
 use serenity::{
     async_trait,
     constants::MESSAGE_CODE_LIMIT,
-    model::prelude::ChannelId,
     model::prelude::{
         command::Command,
         interaction::{application_command::ApplicationCommandInteraction, Interaction},
@@ -25,8 +24,8 @@ use serenity::{
 };
 use xiv_emote_parser::{
     log_message::{
-        condition::{Answers, Character, DynamicText, Gender, LogMessageAnswersError},
-        parser::{extract_condition_texts, ConditionTexts, Text},
+        condition::{Character, DynamicText, Gender, LogMessageAnswersError},
+        parser::{extract_condition_texts, Text},
         EmoteTextError, LogMessageAnswers,
     },
     repository::{LogMessageRepository, LogMessageRepositoryError},
@@ -214,28 +213,47 @@ impl EventHandler for Handler {
 }
 
 impl Handler {
-    pub async fn send_emote(
+    pub fn build_emote_message(
         &self,
-        context: &Context,
-        condition_texts: ConditionTexts,
-        answers: impl Answers,
-        author: &impl Mentionable,
-        target_name: Option<&String>,
-        channel_id: ChannelId,
-        ref_msg: Option<&Message>,
-    ) -> Result<(), HandlerError> {
+        emote: &str,
+        author_user: &DbUser,
+        author_mention: &impl Mentionable,
+        target: Option<&str>,
+    ) -> Result<String, HandlerError> {
         let mut msg_builder = MessageBuilder::new();
+
+        let messages = self.log_message_repo.messages(emote)?;
+        let localized_messages = author_user.language.with_emote_data(messages);
+        let condition_texts = extract_condition_texts(if target.is_some() {
+            &localized_messages.targeted
+        } else {
+            &localized_messages.untargeted
+        })?;
+
+        let answers = LogMessageAnswers::new(
+            Character::new_from_string(
+                author_mention.mention().to_string(),
+                author_user.gender.into(),
+                true,
+                false,
+            ),
+            target
+                .as_ref()
+                .map(|t| Character::new_from_string(t.to_string(), Gender::Male, true, false))
+                .unwrap_or(UNTARGETED_TARGET),
+        )?;
+
         let mut errs: Vec<_> = condition_texts
             .map_texts_mut(&answers, |text| {
                 match text {
                     Text::Dynamic(d) => match d {
                         DynamicText::NpcOriginName
                         | DynamicText::PlayerOriginNameEn
-                        | DynamicText::PlayerOriginNameJp => msg_builder.mention(author),
+                        | DynamicText::PlayerOriginNameJp => msg_builder.mention(author_mention),
                         DynamicText::NpcTargetName
                         | DynamicText::PlayerTargetNameEn
-                        | DynamicText::PlayerTargetNameJp => match &target_name {
-                            Some(n) => msg_builder.push(n),
+                        | DynamicText::PlayerTargetNameJp => match &target {
+                            Some(t) => msg_builder.push(t),
                             None => return Some(HandlerError::TargetNone),
                         },
                     },
@@ -248,19 +266,7 @@ impl Handler {
             error!("errors during text processing: {:?}", errs);
             return Err(errs.remove(0));
         }
-        if let Err(e) = channel_id
-            .send_message(context, |m| {
-                if let Some(r) = ref_msg {
-                    m.reference_message(r);
-                }
-                m.content(msg_builder.build())
-            })
-            .await
-        {
-            error!("failed to send emote message: {:?}", e);
-            return Err(HandlerError::Send(e));
-        }
-        Ok(())
+        Ok(msg_builder.build())
     }
 
     async fn process_input(
@@ -284,67 +290,20 @@ impl Handler {
 
         trace!("parsed command and mention: {:?} {:?}", emote, mention);
 
-        let user = self.db.find_user(msg.author.id).await?;
-        let language = user.language();
-        let gender = user.gender();
-        trace!("language is {:?}, gender is {:?}", language, gender);
+        let user = self.db.find_user(msg.author.id).await?.unwrap_or_default();
+        trace!("user settings: {:?}", user);
 
         match (&emote, mention) {
             (emote, Some(mention)) if self.log_message_repo.contains_emote(emote) => {
                 debug!("emote with mention");
-                let messages = self.log_message_repo.messages(emote)?;
-                let origin = Character::new_from_string(
-                    msg.author_nick(context)
-                        .await
-                        .unwrap_or_else(|| msg.author.name.clone()),
-                    gender.into(),
-                    true,
-                    false,
-                );
-                trace!("message origin: {:?}", origin);
-                let target =
-                    Character::new_from_string(mention.to_string(), Gender::Male, true, false);
-                trace!("message target: {:?}", target);
-                let answers = LogMessageAnswers::new(origin, target)?;
-                let condition_texts =
-                    extract_condition_texts(&language.with_emote_data(messages).targeted)?;
-                self.send_emote(
-                    context,
-                    condition_texts,
-                    answers,
-                    &msg.author,
-                    Some(&mention),
-                    msg.channel_id,
-                    Some(msg),
-                )
-                .await?;
+                let body = self.build_emote_message(emote, &user, &msg.author, Some(&mention))?;
+                msg.reply(context, body).await?;
                 Ok(())
             }
             (emote, None) if self.log_message_repo.contains_emote(emote) => {
                 debug!("emote without mention");
-                let messages = self.log_message_repo.messages(emote)?;
-                let origin = Character::new_from_string(
-                    msg.author_nick(context)
-                        .await
-                        .unwrap_or_else(|| msg.author.name.clone()),
-                    gender.into(),
-                    true,
-                    false,
-                );
-                trace!("message origin: {:?}", origin);
-                let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
-                let condition_texts =
-                    extract_condition_texts(&language.with_emote_data(messages).untargeted)?;
-                self.send_emote(
-                    context,
-                    condition_texts,
-                    answers,
-                    &msg.author,
-                    None,
-                    msg.channel_id,
-                    Some(msg),
-                )
-                .await?;
+                let body = self.build_emote_message(emote, &user, &msg.author, None)?;
+                msg.reply(context, body).await?;
                 Ok(())
             }
             (emote, _) => Err(HandlerError::UnrecognizedEmote(emote.to_string())),

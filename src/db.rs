@@ -4,7 +4,7 @@ use log::*;
 use sqlx::PgPool;
 use thiserror::Error;
 
-use self::models::{DbGender, DbGuild, DbLanguage, DbUser, DbUserOpt};
+use self::models::{DbGender, DbGuild, DbLanguage, DbUser};
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -44,7 +44,7 @@ impl Db {
         Ok(())
     }
 
-    pub async fn find_user(&self, discord_id: impl ToString) -> Result<DbUserOpt> {
+    pub async fn find_user(&self, discord_id: impl ToString) -> Result<Option<DbUser>> {
         let discord_id = discord_id.to_string();
         debug!("checking for user {:?}", discord_id);
         let res = sqlx::query_as!(
@@ -64,7 +64,7 @@ impl Db {
         .fetch_optional(&self.0)
         .await?;
         debug!("user lookup: {:?}", res);
-        Ok(DbUserOpt(res))
+        Ok(res)
     }
 
     pub async fn upsert_guild(

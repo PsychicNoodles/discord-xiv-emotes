@@ -231,7 +231,6 @@ impl AppCmd for UserSettingsCmd {
             .db
             .find_user(discord_id.clone())
             .await?
-            .into_inner()
             .unwrap_or(DbUser {
                 discord_id,
                 ..Default::default()

@@ -19,11 +19,6 @@ use serenity::{
     prelude::{Context, Mentionable},
 };
 use thiserror::Error;
-use xiv_emote_parser::log_message::{
-    condition::{Character, Gender},
-    parser::extract_condition_texts,
-    LogMessageAnswers,
-};
 
 use crate::{commands::AppCmd, HandlerError, INTERACTION_TIMEOUT, UNTARGETED_TARGET};
 
@@ -480,27 +475,18 @@ impl AppCmd for EmoteSelectCmd {
     {
         trace!("finding members");
 
-        let (author, members) = if let Some(guild_id) = cmd.guild_id {
-            (
-                cmd.user
-                    .nick_in(&context, guild_id)
-                    .await
-                    .unwrap_or_else(|| cmd.user.name.clone()),
-                guild_id
-                    .members(context, None, None)
-                    .await?
-                    .into_iter()
-                    .map(UserInfo::from)
-                    .collect(),
-            )
+        let members = if let Some(guild_id) = cmd.guild_id {
+            guild_id
+                .members(context, None, None)
+                .await?
+                .into_iter()
+                .map(UserInfo::from)
+                .collect()
         } else {
-            (
-                cmd.user.name.clone(),
-                vec![
-                    UserInfo::from(&cmd.user),
-                    UserInfo::from(User::from(context.cache.current_user())),
-                ],
-            )
+            vec![
+                UserInfo::from(&cmd.user),
+                UserInfo::from(User::from(context.cache.current_user())),
+            ]
         };
         trace!("potential members: {:?}", members);
 
@@ -523,49 +509,17 @@ impl AppCmd for EmoteSelectCmd {
         trace!("awaiting interactions");
         let res = handle_interactions(context, &msg, &emote_list, members).await?;
 
-        let messages = handler.log_message_repo.messages(&res.emote)?;
+        let user = handler.db.find_user(cmd.user.id).await?.unwrap_or_default();
 
-        let user = handler.db.find_user(cmd.user.id).await?;
-        let language = user.language();
-        let gender = user.gender();
-
-        let origin = Character::new_from_string(author, gender.into(), true, false);
-        trace!("message origin: {:?}", origin);
-        if let Some(target_name) = &res.target {
-            let target =
-                Character::new_from_string(target_name.to_string(), Gender::Male, true, false);
-            trace!("message target: {:?}", target);
-            let condition_texts =
-                extract_condition_texts(&language.with_emote_data(messages).targeted)?;
-            let answers = LogMessageAnswers::new(origin, target)?;
-            handler
-                .send_emote(
-                    context,
-                    condition_texts,
-                    answers,
-                    &msg.author,
-                    res.target.map(|t| t.to_string()).as_ref(),
-                    cmd.channel_id,
-                    None,
-                )
-                .await?;
-        } else {
-            trace!("no message target");
-            let condition_texts =
-                extract_condition_texts(&language.with_emote_data(messages).untargeted)?;
-            let answers = LogMessageAnswers::new(origin, UNTARGETED_TARGET)?;
-            handler
-                .send_emote(
-                    context,
-                    condition_texts,
-                    answers,
-                    &msg.author,
-                    None,
-                    cmd.channel_id,
-                    None,
-                )
-                .await?;
-        };
+        let body = handler.build_emote_message(
+            &res.emote,
+            &user,
+            &msg.author,
+            res.target.map(|t| t.to_string()).as_deref(),
+        )?;
+        cmd.channel_id
+            .send_message(context, |m| m.content(body))
+            .await?;
 
         Ok(())
     }
