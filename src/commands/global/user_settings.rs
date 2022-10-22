@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use log::*;
 use serenity::{
-    builder::{CreateApplicationCommand, CreateComponents, CreateInteractionResponse},
+    builder::{CreateApplicationCommand, CreateInteractionResponse},
     model::{
         prelude::{
             command::CommandType,
@@ -157,47 +157,42 @@ fn create_response<'a, 'b>(
     res.kind(kind).interaction_response_data(|data| {
         data.ephemeral(true)
             .content(format!("User settings for {}", author.name))
-            .components(|c| create_user_settings_components(c, user))
-    })
-}
-
-fn create_user_settings_components<'a>(
-    create_components: &'a mut CreateComponents,
-    user: &DbUser,
-) -> &'a mut CreateComponents {
-    create_components.create_action_row(|row| {
-        row.create_select_menu(|menu| {
-            menu.custom_id(Ids::GenderSelect).options(|opts| {
-                DbGender::iter().for_each(|gender| {
-                    opts.create_option(|o| {
-                        o.label(gender.to_string(user.language))
-                            .value(gender as i32)
-                            .default_selection(user.gender == gender)
-                    });
+            .components(|c| {
+                c.create_action_row(|row| {
+                    row.create_select_menu(|menu| {
+                        menu.custom_id(Ids::GenderSelect).options(|opts| {
+                            DbGender::iter().for_each(|gender| {
+                                opts.create_option(|o| {
+                                    o.label(gender.to_string(user.language))
+                                        .value(gender as i32)
+                                        .default_selection(user.gender == gender)
+                                });
+                            });
+                            opts
+                        })
+                    })
                 });
-                opts
-            })
-        })
-    });
-    create_components.create_action_row(|row| {
-        row.create_select_menu(|menu| {
-            menu.custom_id(Ids::LanguageSelect).options(|opts| {
-                DbLanguage::iter().for_each(|lang| {
-                    opts.create_option(|o| {
-                        o.label(lang.to_string(user.language))
-                            .value(lang as i32)
-                            .default_selection(user.language == lang)
-                    });
+                c.create_action_row(|row| {
+                    row.create_select_menu(|menu| {
+                        menu.custom_id(Ids::LanguageSelect).options(|opts| {
+                            DbLanguage::iter().for_each(|lang| {
+                                opts.create_option(|o| {
+                                    o.label(lang.to_string(user.language))
+                                        .value(lang as i32)
+                                        .default_selection(user.language == lang)
+                                });
+                            });
+                            opts
+                        })
+                    })
                 });
-                opts
+                c.create_action_row(|row| {
+                    row.create_button(|btn| {
+                        btn.custom_id(Ids::Submit);
+                        btn.label("Save")
+                    })
+                })
             })
-        })
-    });
-    create_components.create_action_row(|row| {
-        row.create_button(|btn| {
-            btn.custom_id(Ids::Submit);
-            btn.label("Save")
-        })
     })
 }
 

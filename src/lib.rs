@@ -2,7 +2,10 @@ mod commands;
 mod db;
 
 use commands::CommandsEnum;
-use db::{models::DbUser, Db};
+use db::{
+    models::{DbGuild, DbUser},
+    Db,
+};
 use futures::future::{try_join_all, TryFutureExt};
 use log::*;
 use sqlx::PgPool;
@@ -183,14 +186,21 @@ impl Handler {
     pub fn build_emote_message(
         &self,
         emote: &str,
-        author_user: &DbUser,
+        author_user: Option<DbUser>,
         author_mention: &impl Mentionable,
         target: Option<&str>,
+        guild: Option<DbGuild>,
     ) -> Result<String, HandlerError> {
         let mut msg_builder = MessageBuilder::new();
 
+        let (language, gender) = match (&author_user, &guild) {
+            (Some(a), _) => (a.language, a.gender),
+            (_, Some(g)) => (g.language, g.gender),
+            _ => (Default::default(), Default::default()),
+        };
+
         let messages = self.log_message_repo.messages(emote)?;
-        let localized_messages = author_user.language.with_emote_data(messages);
+        let localized_messages = language.with_emote_data(messages);
         let condition_texts = extract_condition_texts(if target.is_some() {
             &localized_messages.targeted
         } else {
@@ -200,7 +210,7 @@ impl Handler {
         let answers = LogMessageAnswers::new(
             Character::new_from_string(
                 author_mention.mention().to_string(),
-                author_user.gender.into(),
+                gender.into(),
                 true,
                 false,
             ),
@@ -252,19 +262,30 @@ impl Handler {
 
         trace!("parsed command and mention: {:?} {:?}", emote, mention);
 
-        let user = self.db.find_user(msg.author.id).await?.unwrap_or_default();
+        let user = self.db.find_user(msg.author.id).await?;
         trace!("user settings: {:?}", user);
 
         match (&emote, mention) {
             (emote, Some(mention)) if self.log_message_repo.contains_emote(emote) => {
                 debug!("emote with mention");
-                let body = self.build_emote_message(emote, &user, &msg.author, Some(&mention))?;
+                let guild = if let Some(guild_id) = msg.guild_id {
+                    self.db.find_guild(guild_id).await?
+                } else {
+                    None
+                };
+                let body =
+                    self.build_emote_message(emote, user, &msg.author, Some(&mention), guild)?;
                 msg.reply(context, body).await?;
                 Ok(())
             }
             (emote, None) if self.log_message_repo.contains_emote(emote) => {
                 debug!("emote without mention");
-                let body = self.build_emote_message(emote, &user, &msg.author, None)?;
+                let guild = if let Some(guild_id) = msg.guild_id {
+                    self.db.find_guild(guild_id).await?
+                } else {
+                    None
+                };
+                let body = self.build_emote_message(emote, user, &msg.author, None, guild)?;
                 msg.reply(context, body).await?;
                 Ok(())
             }

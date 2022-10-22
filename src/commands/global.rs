@@ -11,7 +11,7 @@ use crate::{Handler, HandlerError};
 
 use self::{
     emote::EmoteCmd, emote_select::EmoteSelectCmd, list_emotes::ListEmotesCmd,
-    user_settings::UserSettingsCmd,
+    server_settings::ServerSettingsCmd, user_settings::UserSettingsCmd,
 };
 
 use super::{AppCmd, CommandsEnum};
@@ -19,6 +19,7 @@ use super::{AppCmd, CommandsEnum};
 pub mod emote;
 pub mod emote_select;
 pub mod list_emotes;
+pub mod server_settings;
 pub mod user_settings;
 
 #[derive(Debug, Clone, Copy, AsRefStr, Display, EnumString, EnumIter)]
@@ -31,6 +32,8 @@ pub enum GlobalCommands {
     Emote,
     #[strum(serialize = "list-emotes")]
     ListEmotes,
+    #[strum(serialize = "server-settings")]
+    ServerSettings,
 }
 
 impl GlobalCommands {
@@ -40,6 +43,7 @@ impl GlobalCommands {
             GlobalCommands::UserSettings => UserSettingsCmd::to_application_command(),
             GlobalCommands::Emote => EmoteCmd::to_application_command(),
             GlobalCommands::ListEmotes => ListEmotesCmd::to_application_command(),
+            GlobalCommands::ServerSettings => ServerSettingsCmd::to_application_command(),
         }
     }
 
@@ -61,6 +65,7 @@ impl CommandsEnum for GlobalCommands {
             GlobalCommands::UserSettings => UserSettingsCmd::handle(cmd, handler, context),
             GlobalCommands::Emote => EmoteCmd::handle(cmd, handler, context),
             GlobalCommands::ListEmotes => ListEmotesCmd::handle(cmd, handler, context),
+            GlobalCommands::ServerSettings => ServerSettingsCmd::handle(cmd, handler, context),
         }
         .await
     }

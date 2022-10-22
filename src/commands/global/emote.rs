@@ -103,9 +103,15 @@ impl AppCmd for EmoteCmd {
             return Ok(());
         }
 
-        let user = handler.db.find_user(cmd.user.id).await?.unwrap_or_default();
+        let user = handler.db.find_user(cmd.user.id).await?;
+        let guild = if let Some(guild_id) = cmd.guild_id {
+            handler.db.find_guild(guild_id).await?
+        } else {
+            None
+        };
 
-        let body = handler.build_emote_message(&emote, &user, &cmd.user, target.as_deref())?;
+        let body =
+            handler.build_emote_message(&emote, user, &cmd.user, target.as_deref(), guild)?;
         cmd.channel_id
             .send_message(context, |m| m.content(body))
             .await?;
