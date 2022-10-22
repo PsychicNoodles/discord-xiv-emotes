@@ -11,7 +11,6 @@ use thiserror::Error;
 
 use serenity::{
     async_trait,
-    constants::MESSAGE_CODE_LIMIT,
     model::prelude::{
         command::Command,
         interaction::{application_command::ApplicationCommandInteraction, Interaction},
@@ -76,38 +75,6 @@ pub enum HandlerError {
     TypeMapNotFound,
     #[error("Maximum number of commands reached")]
     ApplicationCommandCap,
-}
-
-pub fn split_by_max_message_len(
-    prefix: impl AsRef<str>,
-    mut body: impl Iterator<Item = String>,
-) -> Vec<String> {
-    let mut res = vec![];
-    let mut msg = if let Some(item) = body.next() {
-        item
-    } else {
-        return res;
-    };
-    for item in body {
-        msg.push_str(", ");
-
-        // todo count with codepoints rather than String len?
-        if prefix.as_ref().len() + " (xx/xx): ".len() + msg.len() + item.len() + ", ".len()
-            > MESSAGE_CODE_LIMIT
-        {
-            res.push(msg);
-            msg = String::new();
-        }
-
-        msg.push_str(&item);
-    }
-    res.push(msg);
-    let count = res.len();
-    res.iter_mut().enumerate().for_each(|(i, m)| {
-        m.insert_str(0, &format!("{} ({}/{}): ", prefix.as_ref(), i + 1, count));
-    });
-    trace!("res: {:?}", res);
-    res
 }
 
 // async fn determine_mention(msg: &Message, context: &Context) -> Option<Target> {
@@ -275,13 +242,8 @@ impl Handler {
         mparts: &[&str],
         msg: &Message,
     ) -> Result<(), HandlerError> {
-        if self.check_other_cmd(context, mparts, msg).await? {
-            debug!("non-emote command");
-            return Ok(());
-        }
-
-        let (emote, mention) = mparts.split_first().ok_or(HandlerError::EmptyCommand)?;
-        let emote = ["/", emote].concat();
+        let (original_emote, mention) = mparts.split_first().ok_or(HandlerError::EmptyCommand)?;
+        let emote = ["/", original_emote].concat();
         let mention = if mention.is_empty() {
             None
         } else {
@@ -306,37 +268,7 @@ impl Handler {
                 msg.reply(context, body).await?;
                 Ok(())
             }
-            (emote, _) => Err(HandlerError::UnrecognizedEmote(emote.to_string())),
-        }
-    }
-
-    async fn check_other_cmd(
-        &self,
-        context: &Context,
-        mparts: &[&str],
-        msg: &Message,
-    ) -> Result<bool, HandlerError> {
-        match mparts[..] {
-            [_cmd] if _cmd == "emotes" => {
-                trace!("emotes command");
-                const EMOTE_LIST_PREFIX: &str = "List of emotes";
-                let results = split_by_max_message_len(
-                    EMOTE_LIST_PREFIX,
-                    self.log_message_repo.emote_list_by_id().cloned(),
-                );
-                debug!("emotes response is {} messages long", results.len());
-
-                for res in results {
-                    msg.reply(context, res).await?;
-                }
-                Ok(true)
-            }
-            [_cmd] if _cmd == "help" => {
-                trace!("help command");
-                msg.reply(context, format!("Use emotes from FFXIV in chat, optionally with a (mentionable) target! Use {}emotes for a list of options.", PREFIX)).await?;
-                Ok(true)
-            }
-            _ => Ok(false),
+            (_, _) => Err(HandlerError::UnrecognizedEmote(original_emote.to_string())),
         }
     }
 
