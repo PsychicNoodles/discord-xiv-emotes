@@ -16,22 +16,7 @@ use crate::{commands::AppCmd, Handler, HandlerError, PREFIX};
 use super::GlobalCommands;
 
 fn resolve_mention(data: &CommandData, context: &Context) -> Option<String> {
-    if let Some(member) = data.resolved.members.values().next() {
-        debug!("resolved to member");
-        match (member.user.as_ref(), data.guild_id) {
-            (Some(user), Some(guild_id)) => context
-                .cache
-                .member_field(guild_id, user.id, |mem| mem.mention().to_string()),
-            (None, _) => {
-                warn!("member did not have user data");
-                None
-            }
-            (_, None) => {
-                warn!("not in a guild");
-                None
-            }
-        }
-    } else if let Some(user) = data.resolved.users.values().next() {
+    if let Some(user) = data.resolved.users.values().next() {
         debug!("resolved to user");
         Some(user.mention().to_string())
     } else if let Some(role) = data.resolved.roles.values().next() {
@@ -43,6 +28,9 @@ fn resolve_mention(data: &CommandData, context: &Context) -> Option<String> {
             .cache
             .channel(channel.id)
             .map(|c| c.mention().to_string())
+    } else if let Some(plain) = data.options.get(1).and_then(|opt| opt.value.clone()) {
+        debug!("resolved to plain text");
+        plain.as_str().map(ToString::to_string)
     } else {
         None
     }
@@ -67,9 +55,9 @@ impl AppCmd for EmoteCmd {
                     .required(true)
             })
             .create_option(|opt| {
-                opt.kind(CommandOptionType::Mentionable)
+                opt.kind(CommandOptionType::String)
                     .name("target")
-                    .description("Who to target with the emote")
+                    .description("Who to target with the emote (can be a mention)")
             })
             .dm_permission(true);
         cmd
