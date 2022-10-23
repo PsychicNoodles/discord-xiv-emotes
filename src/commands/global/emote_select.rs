@@ -437,24 +437,6 @@ async fn handle_interactions(
             }
             Ok(Ids::Submit) => {
                 if let Some(em) = &selection.selected_emote_value {
-                    interaction
-                        .create_interaction_response(context, |res| {
-                            res.kind(InteractionResponseType::UpdateMessage)
-                                .interaction_response_data(|d| {
-                                    d.content(format!(
-                                        "{} ({}{})",
-                                        EMOTE_SENT.for_user(user),
-                                        em,
-                                        if let Some(t) = &selection.selected_target_value {
-                                            [" ".to_string(), t.to_string()].concat()
-                                        } else {
-                                            "".to_string()
-                                        }
-                                    ))
-                                    .components(|cmp| cmp)
-                                })
-                        })
-                        .await?;
                     return Ok(InteractionResult {
                         emote: em.clone(),
                         target: selection.selected_target_value.clone(),
@@ -525,7 +507,7 @@ impl AppCmd for EmoteSelectCmd {
         };
         trace!("potential members: {:?}", members);
 
-        let user = handler
+        let user_settings = handler
             .db
             .determine_user_settings(cmd.user.id.to_string(), cmd.guild_id)
             .await?;
@@ -536,7 +518,7 @@ impl AppCmd for EmoteSelectCmd {
             create_response(
                 res,
                 InteractionResponseType::ChannelMessageWithSource,
-                &user,
+                &user_settings,
                 &emote_list,
                 &Selection::default(),
                 &members,
@@ -546,7 +528,7 @@ impl AppCmd for EmoteSelectCmd {
         let msg = cmd.get_interaction_response(context).await?;
 
         trace!("awaiting interactions");
-        let res = handle_interactions(context, &msg, &user, &emote_list, members).await?;
+        let res = handle_interactions(context, &msg, &user_settings, &emote_list, members).await?;
 
         let user = handler.db.find_user(cmd.user.id).await?;
         let guild = if let Some(guild_id) = cmd.guild_id {
@@ -559,12 +541,27 @@ impl AppCmd for EmoteSelectCmd {
             &res.emote,
             user,
             &msg.author,
-            res.target.map(|t| t.to_string()).as_deref(),
+            res.target.as_ref().map(|t| t.to_string()).as_deref(),
             guild,
         )?;
         cmd.channel_id
             .send_message(context, |m| m.content(body))
             .await?;
+
+        cmd.edit_original_interaction_response(context, |d| {
+            d.content(format!(
+                "{} ({}{})",
+                EMOTE_SENT.for_user(&user_settings),
+                res.emote,
+                if let Some(t) = &res.target {
+                    [" ".to_string(), t.to_string()].concat()
+                } else {
+                    "".to_string()
+                }
+            ))
+            .components(|cmp| cmp)
+        })
+        .await?;
 
         Ok(())
     }
