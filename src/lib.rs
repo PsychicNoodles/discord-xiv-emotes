@@ -139,7 +139,9 @@ impl EventHandler for Handler {
             {
                 error!("error during interaction processing: {:?}", err);
                 if let Err(e) = cmd
-                    .create_followup_message(&context, |msg| msg.content(err.to_string()))
+                    .create_followup_message(&context, |msg| {
+                        msg.ephemeral(true).content(err.to_string())
+                    })
                     .await
                 {
                     error!(

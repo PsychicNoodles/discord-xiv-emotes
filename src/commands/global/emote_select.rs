@@ -206,21 +206,26 @@ fn interaction_response_content(
     )
 }
 
+#[derive(Debug, Clone, Default)]
+struct Selection {
+    emote_list_offset: Option<usize>,
+    selected_emote_value: Option<String>,
+    selected_target_value: Option<Target>,
+}
+
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
     kind: InteractionResponseType,
     user: &DbUser,
     emote_list: &Vec<&String>,
-    emote_list_offset: Option<usize>,
-    selected_emote_value: Option<&str>,
-    selected_target_value: Option<&Target>,
+    selection: &Selection,
     members: &Vec<UserInfo>,
 ) -> &'a mut CreateInteractionResponse<'b> {
     res.kind(kind).interaction_response_data(|d| {
         d.ephemeral(true)
             .content(interaction_response_content(
                 emote_list.len(),
-                emote_list_offset,
+                selection.emote_list_offset,
                 user,
             ))
             .components(|c| {
@@ -228,19 +233,23 @@ fn create_response<'a, 'b>(
                     row.create_select_menu(|menu| {
                         menu.custom_id(Ids::TargetSelect)
                             .placeholder(
-                                selected_target_value
+                                selection
+                                    .selected_target_value
+                                    .as_ref()
                                     .and_then(|t| match t {
                                         Target::Plain(s) => Some(s.as_str()),
                                         _ => None,
                                     })
-                                    .unwrap_or(NO_USER_SELECTED.for_user(user)),
+                                    .unwrap_or_else(|| NO_USER_SELECTED.for_user(user)),
                             )
                             .options(|opts| {
                                 for member in members {
                                     opts.create_option(|o| {
                                         let value = member.id;
                                         o.label(&member.name).value(value).default_selection(
-                                            selected_target_value
+                                            selection
+                                                .selected_target_value
+                                                .as_ref()
                                                 .map(
                                                     |t| matches!(t, Target::User(u) if *u == value),
                                                 )
@@ -265,12 +274,14 @@ fn create_response<'a, 'b>(
                             .options(|opts| {
                                 for emote in emote_list
                                     .iter()
-                                    .skip(emote_list_offset.unwrap_or(0))
+                                    .skip(selection.emote_list_offset.unwrap_or(0))
                                     .take(EMOTE_LIST_OFFSET_STEP)
                                 {
                                     opts.create_option(|o| {
                                         o.label(emote).value(emote).default_selection(
-                                            selected_emote_value
+                                            selection
+                                                .selected_emote_value
+                                                .as_ref()
                                                 .map(|v| v == emote.as_str())
                                                 .unwrap_or(false),
                                         )
@@ -285,7 +296,8 @@ fn create_response<'a, 'b>(
                         btn.custom_id(Ids::EmotePrevBtn)
                             .label(PREV_EMOTE_PAGE.for_user(user))
                             .disabled(
-                                emote_list_offset
+                                selection
+                                    .emote_list_offset
                                     .map(|off| off < EMOTE_LIST_OFFSET_STEP)
                                     .unwrap_or(true),
                             )
@@ -294,7 +306,8 @@ fn create_response<'a, 'b>(
                         btn.custom_id(Ids::EmoteNextBtn)
                             .label(NEXT_EMOTE_PAGE.for_user(user))
                             .disabled(
-                                emote_list_offset
+                                selection
+                                    .emote_list_offset
                                     .map(|off| off + EMOTE_LIST_OFFSET_STEP >= emote_list.len())
                                     .unwrap_or(false),
                             )
@@ -316,9 +329,7 @@ async fn handle_interactions(
     emote_list: &Vec<&String>,
     members: Vec<UserInfo>,
 ) -> Result<InteractionResult, HandlerError> {
-    let mut emote: Option<String> = None;
-    let mut emote_list_offset: Option<usize> = None;
-    let mut target: Option<Target> = None;
+    let mut selection = Selection::default();
 
     while let Some(interaction) = msg
         .await_component_interactions(context)
@@ -360,7 +371,8 @@ async fn handle_interactions(
                     match &modal_interaction.data.components[0].components[0] {
                         ActionRowComponent::InputText(cmp) => {
                             trace!("setting target to: {}", cmp.value);
-                            target = Some(Target::Plain(cmp.value.clone()));
+                            selection.selected_target_value =
+                                Some(Target::Plain(cmp.value.clone()));
                             modal_interaction
                                 .create_interaction_response(context, |res| {
                                     create_response(
@@ -368,9 +380,7 @@ async fn handle_interactions(
                                         InteractionResponseType::UpdateMessage,
                                         user,
                                         emote_list,
-                                        emote_list_offset,
-                                        emote.as_deref(),
-                                        target.as_ref(),
+                                        &selection,
                                         &members,
                                     )
                                 })
@@ -388,11 +398,11 @@ async fn handle_interactions(
             Ok(Ids::EmoteSelect) => {
                 let em = interaction.data.values[0].clone();
                 debug!("emote selected: {}", em);
-                emote.replace(em);
+                selection.selected_emote_value.replace(em);
             }
             Ok(Ids::EmotePrevBtn) => {
                 debug!("previous emote list page");
-                emote_list_offset = match emote_list_offset {
+                selection.emote_list_offset = match selection.emote_list_offset {
                     None => None,
                     Some(_o) if _o <= EMOTE_LIST_OFFSET_STEP => None,
                     Some(o) => Some(o - EMOTE_LIST_OFFSET_STEP),
@@ -400,7 +410,7 @@ async fn handle_interactions(
             }
             Ok(Ids::EmoteNextBtn) => {
                 debug!("next emote list page");
-                emote_list_offset = match emote_list_offset {
+                selection.emote_list_offset = match selection.emote_list_offset {
                     None => Some(EMOTE_LIST_OFFSET_STEP),
                     Some(_o) if _o + EMOTE_LIST_OFFSET_STEP >= emote_list.len() => Some(_o),
                     Some(o) => Some(o + EMOTE_LIST_OFFSET_STEP),
@@ -417,7 +427,7 @@ async fn handle_interactions(
                     }
                 }
                 .into();
-                target.replace(Target::User(
+                selection.selected_target_value.replace(Target::User(
                     members
                         .iter()
                         .map(|member| member.id)
@@ -426,7 +436,7 @@ async fn handle_interactions(
                 ));
             }
             Ok(Ids::Submit) => {
-                if let Some(em) = &emote {
+                if let Some(em) = &selection.selected_emote_value {
                     interaction
                         .create_interaction_response(context, |res| {
                             res.kind(InteractionResponseType::UpdateMessage)
@@ -435,7 +445,7 @@ async fn handle_interactions(
                                         "{} ({}{})",
                                         EMOTE_SENT.for_user(user),
                                         em,
-                                        if let Some(t) = &target {
+                                        if let Some(t) = &selection.selected_target_value {
                                             [" ".to_string(), t.to_string()].concat()
                                         } else {
                                             "".to_string()
@@ -447,7 +457,7 @@ async fn handle_interactions(
                         .await?;
                     return Ok(InteractionResult {
                         emote: em.clone(),
-                        target: target.clone(),
+                        target: selection.selected_target_value.clone(),
                     });
                 } else {
                     debug!("tried submitting without all necessary selections");
@@ -465,9 +475,7 @@ async fn handle_interactions(
                     InteractionResponseType::UpdateMessage,
                     user,
                     emote_list,
-                    emote_list_offset,
-                    emote.as_deref(),
-                    target.as_ref(),
+                    &selection,
                     &members,
                 )
             })
@@ -530,9 +538,7 @@ impl AppCmd for EmoteSelectCmd {
                 InteractionResponseType::ChannelMessageWithSource,
                 &user,
                 &emote_list,
-                None,
-                None,
-                None,
+                &Selection::default(),
                 &members,
             )
         })
