@@ -132,7 +132,7 @@ impl EventHandler for Handler {
         if let Interaction::ApplicationCommand(cmd) = interaction {
             trace!("incoming application command: {:?}", cmd);
 
-            if let Err(err) = self
+            if let Err(err) | Ok(Err(err)) = self
                 .try_handle_commands::<GlobalCommands>(&context, &cmd)
                 .or_else(|_| self.try_handle_commands::<GuildCommands>(&context, &cmd))
                 .await
@@ -148,8 +148,7 @@ impl EventHandler for Handler {
                         e
                     );
                 }
-                return;
-            }
+            };
         }
     }
 
@@ -298,13 +297,15 @@ impl Handler {
         &self,
         context: &Context,
         cmd: &ApplicationCommandInteraction,
-    ) -> Result<(), HandlerError>
+    ) -> Result<Result<(), HandlerError>, HandlerError>
     where
         T: CommandsEnum,
     {
-        match T::from_str(cmd.data.name.as_str()) {
-            Ok(app_cmd) => app_cmd.handle(cmd, self, context).await,
-            Err(_) => Err(HandlerError::UnrecognizedCommand(cmd.data.name.clone())),
+        if let Ok(app_cmd) = T::from_str(cmd.data.name.as_str()) {
+            trace!("handing off to app command handler");
+            Ok(app_cmd.handle(cmd, self, context).await)
+        } else {
+            Err(HandlerError::UnrecognizedCommand(cmd.data.name.to_string()))
         }
     }
 }

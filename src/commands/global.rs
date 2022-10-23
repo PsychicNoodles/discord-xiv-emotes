@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
+use log::*;
 use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::interaction::application_command::ApplicationCommandInteraction,
@@ -87,6 +88,7 @@ impl FromStr for GlobalCommands {
     type Err = InvalidGlobalCommand;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        trace!("checking for global command: {}", s);
         GlobalCommands::iter()
             .find(|cmd| cmd.name().any_eq(s))
             .ok_or_else(|| InvalidGlobalCommand(s.to_string()))
