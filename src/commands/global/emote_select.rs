@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use futures::stream::StreamExt;
 use log::*;
 use serenity::{
-    builder::{CreateApplicationCommand, CreateComponents, CreateInteractionResponse},
+    builder::{CreateApplicationCommand, CreateInteractionResponse},
     model::{
         guild::Member,
         id::UserId,
@@ -20,9 +20,54 @@ use serenity::{
 };
 use thiserror::Error;
 
-use crate::{commands::AppCmd, HandlerError, INTERACTION_TIMEOUT, UNTARGETED_TARGET};
+use crate::{
+    commands::AppCmd,
+    db::models::DbUser,
+    util::{CreateApplicationCommandExt, LocalizedString},
+    HandlerError, INTERACTION_TIMEOUT, UNTARGETED_TARGET,
+};
 
-use super::GlobalCommands;
+pub const CONTENT: LocalizedString = LocalizedString {
+    en: "Select an emote and optionally a target",
+    ja: "エモートを選択してターゲットを任意選択して送信",
+};
+pub const NO_USER_SELECTED: LocalizedString = LocalizedString {
+    en: "No user selected",
+    ja: "ユーザー未選択",
+};
+pub const INPUT_USER_BTN: LocalizedString = LocalizedString {
+    en: "Input custom target",
+    ja: "ターゲット指定入力",
+};
+pub const NO_EMOTE_SELECTED: LocalizedString = LocalizedString {
+    en: "No emote selected",
+    ja: "エモート未選択",
+};
+pub const PREV_EMOTE_PAGE: LocalizedString = LocalizedString {
+    en: "Previous emote page",
+    ja: "前のエモートページへ",
+};
+pub const NEXT_EMOTE_PAGE: LocalizedString = LocalizedString {
+    en: "Next emote page",
+    ja: "次のエモートページへ",
+};
+pub const SEND_BTN: LocalizedString = LocalizedString {
+    en: "Send",
+    ja: "送信",
+};
+pub const EMOTE_SENT: LocalizedString = LocalizedString {
+    en: "Emote sent!",
+    ja: "送信しました！",
+};
+pub const NAME: LocalizedString = LocalizedString {
+    en: "emote-select",
+    ja: "エモート選択",
+};
+pub const DESC: LocalizedString = LocalizedString {
+    en: "Interactively select and send an emote with an optional target user",
+    // todo figure out better translation for this
+    ja: "エモートを選択してターゲットを任意選択して送信",
+};
 
 const INPUT_TARGET_MODAL: &str = "input_target_modal";
 const INPUT_TARGET_COMPONENT: &str = "input_target_input";
@@ -104,8 +149,6 @@ impl ToString for Target {
     }
 }
 
-const INTERACTION_CONTENT: &str = "Select an emote and optionally a target";
-
 // max number of select menu options
 const EMOTE_LIST_OFFSET_STEP: usize = 25;
 
@@ -142,115 +185,19 @@ impl From<&User> for UserInfo {
     }
 }
 
-fn create_user_select<'a>(
-    c: &'a mut CreateComponents,
-    selected_target_value: Option<&Target>,
-    members: &Vec<UserInfo>,
-) -> &'a mut CreateComponents {
-    c.create_action_row(|row| {
-        row.create_select_menu(|menu| {
-            menu.custom_id(Ids::TargetSelect)
-                .placeholder(
-                    selected_target_value
-                        .and_then(|t| match t {
-                            Target::Plain(s) => Some(s.as_str()),
-                            _ => None,
-                        })
-                        .unwrap_or("No user selected"),
-                )
-                .options(|opts| {
-                    for member in members {
-                        opts.create_option(|o| {
-                            let value = member.id;
-                            o.label(&member.name).value(value).default_selection(
-                                selected_target_value
-                                    .map(|t| matches!(t, Target::User(u) if *u == value))
-                                    .unwrap_or(false),
-                            )
-                        });
-                    }
-                    opts
-                })
-        })
-    });
-    c.create_action_row(|row| {
-        row.create_button(|btn| {
-            btn.custom_id(Ids::InputTargetBtn);
-            btn.label("Input custom target")
-        })
-    })
-}
-
-fn create_user_select_components<'a, F>(
-    create_components: &'a mut CreateComponents,
-    emote_list: &Vec<&String>,
-    emote_list_offset: Option<usize>,
-    selected_emote_value: Option<&str>,
-    mut create_target_component: F,
-) -> &'a mut CreateComponents
-where
-    F: FnMut(&mut CreateComponents) -> &mut CreateComponents,
-{
-    create_components.create_action_row(|row| {
-        row.create_select_menu(|menu| {
-            menu.custom_id(Ids::EmoteSelect)
-                .placeholder("No emote selected")
-                .options(|opts| {
-                    for emote in emote_list
-                        .iter()
-                        .skip(emote_list_offset.unwrap_or(0))
-                        .take(EMOTE_LIST_OFFSET_STEP)
-                    {
-                        opts.create_option(|o| {
-                            o.label(emote).value(emote).default_selection(
-                                selected_emote_value
-                                    .map(|v| v == emote.as_str())
-                                    .unwrap_or(false),
-                            )
-                        });
-                    }
-                    opts
-                })
-        })
-    });
-    create_components.create_action_row(|row| {
-        row.create_button(|btn| {
-            btn.custom_id(Ids::EmotePrevBtn)
-                .label("Previous emote page")
-                .disabled(
-                    emote_list_offset
-                        .map(|off| off < EMOTE_LIST_OFFSET_STEP)
-                        .unwrap_or(true),
-                )
-        });
-        row.create_button(|btn| {
-            btn.custom_id(Ids::EmoteNextBtn)
-                .label("Next emote page")
-                .disabled(
-                    emote_list_offset
-                        .map(|off| off + EMOTE_LIST_OFFSET_STEP >= emote_list.len())
-                        .unwrap_or(false),
-                )
-        })
-    });
-    create_target_component(create_components);
-    create_components.create_action_row(|row| {
-        row.create_button(|btn| {
-            btn.custom_id(Ids::Submit);
-            btn.label("Send")
-        })
-    })
-}
-
 struct InteractionResult {
     emote: String,
     target: Option<Target>,
 }
 
-fn interaction_response_content(emote_list_len: usize, emote_list_offset: Option<usize>) -> String {
+fn interaction_response_content(
+    emote_list_len: usize,
+    emote_list_offset: Option<usize>,
+    user: &DbUser,
+) -> String {
     format!(
-        "{} (page {} of {})",
-        INTERACTION_CONTENT,
+        "{} ({}/{})",
+        CONTENT.for_user(user),
         emote_list_offset
             .map(|off| off / EMOTE_LIST_OFFSET_STEP)
             .unwrap_or(0)
@@ -262,6 +209,7 @@ fn interaction_response_content(emote_list_len: usize, emote_list_offset: Option
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
     kind: InteractionResponseType,
+    user: &DbUser,
     emote_list: &Vec<&String>,
     emote_list_offset: Option<usize>,
     selected_emote_value: Option<&str>,
@@ -273,15 +221,90 @@ fn create_response<'a, 'b>(
             .content(interaction_response_content(
                 emote_list.len(),
                 emote_list_offset,
+                user,
             ))
             .components(|c| {
-                create_user_select_components(
-                    c,
-                    emote_list,
-                    emote_list_offset,
-                    selected_emote_value,
-                    |row| create_user_select(row, selected_target_value, members),
-                )
+                c.create_action_row(|row| {
+                    row.create_select_menu(|menu| {
+                        menu.custom_id(Ids::TargetSelect)
+                            .placeholder(
+                                selected_target_value
+                                    .and_then(|t| match t {
+                                        Target::Plain(s) => Some(s.as_str()),
+                                        _ => None,
+                                    })
+                                    .unwrap_or(NO_USER_SELECTED.for_user(user)),
+                            )
+                            .options(|opts| {
+                                for member in members {
+                                    opts.create_option(|o| {
+                                        let value = member.id;
+                                        o.label(&member.name).value(value).default_selection(
+                                            selected_target_value
+                                                .map(
+                                                    |t| matches!(t, Target::User(u) if *u == value),
+                                                )
+                                                .unwrap_or(false),
+                                        )
+                                    });
+                                }
+                                opts
+                            })
+                    })
+                });
+                c.create_action_row(|row| {
+                    row.create_button(|btn| {
+                        btn.custom_id(Ids::InputTargetBtn)
+                            .label(INPUT_USER_BTN.for_user(user))
+                    })
+                });
+                c.create_action_row(|row| {
+                    row.create_select_menu(|menu| {
+                        menu.custom_id(Ids::EmoteSelect)
+                            .placeholder(NO_EMOTE_SELECTED.for_user(user))
+                            .options(|opts| {
+                                for emote in emote_list
+                                    .iter()
+                                    .skip(emote_list_offset.unwrap_or(0))
+                                    .take(EMOTE_LIST_OFFSET_STEP)
+                                {
+                                    opts.create_option(|o| {
+                                        o.label(emote).value(emote).default_selection(
+                                            selected_emote_value
+                                                .map(|v| v == emote.as_str())
+                                                .unwrap_or(false),
+                                        )
+                                    });
+                                }
+                                opts
+                            })
+                    })
+                });
+                c.create_action_row(|row| {
+                    row.create_button(|btn| {
+                        btn.custom_id(Ids::EmotePrevBtn)
+                            .label(PREV_EMOTE_PAGE.for_user(user))
+                            .disabled(
+                                emote_list_offset
+                                    .map(|off| off < EMOTE_LIST_OFFSET_STEP)
+                                    .unwrap_or(true),
+                            )
+                    });
+                    row.create_button(|btn| {
+                        btn.custom_id(Ids::EmoteNextBtn)
+                            .label(NEXT_EMOTE_PAGE.for_user(user))
+                            .disabled(
+                                emote_list_offset
+                                    .map(|off| off + EMOTE_LIST_OFFSET_STEP >= emote_list.len())
+                                    .unwrap_or(false),
+                            )
+                    })
+                });
+                c.create_action_row(|row| {
+                    row.create_button(|btn| {
+                        btn.custom_id(Ids::Submit).label(SEND_BTN.for_user(user))
+                    })
+                })
             })
     })
 }
@@ -289,6 +312,7 @@ fn create_response<'a, 'b>(
 async fn handle_interactions(
     context: &Context,
     msg: &Message,
+    user: &DbUser,
     emote_list: &Vec<&String>,
     members: Vec<UserInfo>,
 ) -> Result<InteractionResult, HandlerError> {
@@ -342,6 +366,7 @@ async fn handle_interactions(
                                     create_response(
                                         res,
                                         InteractionResponseType::UpdateMessage,
+                                        user,
                                         emote_list,
                                         emote_list_offset,
                                         emote.as_deref(),
@@ -407,7 +432,8 @@ async fn handle_interactions(
                             res.kind(InteractionResponseType::UpdateMessage)
                                 .interaction_response_data(|d| {
                                     d.content(format!(
-                                        "Emote sent! ({}{})",
+                                        "{} ({}{})",
+                                        EMOTE_SENT.for_user(user),
                                         em,
                                         if let Some(t) = &target {
                                             [" ".to_string(), t.to_string()].concat()
@@ -437,6 +463,7 @@ async fn handle_interactions(
                 create_response(
                     res,
                     InteractionResponseType::UpdateMessage,
+                    user,
                     emote_list,
                     emote_list_offset,
                     emote.as_deref(),
@@ -458,9 +485,9 @@ impl AppCmd for EmoteSelectCmd {
         Self: Sized,
     {
         let mut cmd = CreateApplicationCommand::default();
-        cmd.name(GlobalCommands::EmoteSelect)
+        cmd.localized_name(NAME)
             .kind(CommandType::ChatInput)
-            .description("Select an emote and optionally a target user")
+            .localized_desc(DESC)
             .dm_permission(true);
         cmd
     }
@@ -490,12 +517,18 @@ impl AppCmd for EmoteSelectCmd {
         };
         trace!("potential members: {:?}", members);
 
+        let user = handler
+            .db
+            .determine_user_settings(cmd.user.id.to_string(), cmd.guild_id)
+            .await?;
+
         trace!("creating interaction response");
         let emote_list: Vec<_> = handler.log_message_repo.emote_list_by_id().collect();
         cmd.create_interaction_response(context, |res| {
             create_response(
                 res,
                 InteractionResponseType::ChannelMessageWithSource,
+                &user,
                 &emote_list,
                 None,
                 None,
@@ -507,7 +540,7 @@ impl AppCmd for EmoteSelectCmd {
         let msg = cmd.get_interaction_response(context).await?;
 
         trace!("awaiting interactions");
-        let res = handle_interactions(context, &msg, &emote_list, members).await?;
+        let res = handle_interactions(context, &msg, &user, &emote_list, members).await?;
 
         let user = handler.db.find_user(cmd.user.id).await?;
         let guild = if let Some(guild_id) = cmd.guild_id {
@@ -528,5 +561,9 @@ impl AppCmd for EmoteSelectCmd {
             .await?;
 
         Ok(())
+    }
+
+    fn name() -> LocalizedString {
+        NAME
     }
 }

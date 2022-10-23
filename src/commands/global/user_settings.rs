@@ -3,15 +3,12 @@ use futures::StreamExt;
 use log::*;
 use serenity::{
     builder::{CreateApplicationCommand, CreateInteractionResponse},
-    model::{
-        prelude::{
-            command::CommandType,
-            interaction::{
-                application_command::ApplicationCommandInteraction, InteractionResponseType,
-            },
-            Message,
+    model::prelude::{
+        command::CommandType,
+        interaction::{
+            application_command::ApplicationCommandInteraction, InteractionResponseType,
         },
-        user::User,
+        Message,
     },
     prelude::Context,
 };
@@ -21,10 +18,30 @@ use thiserror::Error;
 use crate::{
     commands::AppCmd,
     db::models::{DbGender, DbLanguage, DbUser},
+    util::{CreateApplicationCommandExt, LocalizedString},
     HandlerError, INTERACTION_TIMEOUT,
 };
 
-use super::GlobalCommands;
+pub const CONTENT: LocalizedString = LocalizedString {
+    en: "Emote message settings",
+    ja: "エモート設定",
+};
+pub const SAVE_BTN: LocalizedString = LocalizedString {
+    en: "Save",
+    ja: "保存",
+};
+pub const SETTINGS_SAVED: LocalizedString = LocalizedString {
+    en: "Settings saved!",
+    ja: "設定を保存しました！",
+};
+pub const NAME: LocalizedString = LocalizedString {
+    en: "settings",
+    ja: "設定",
+};
+pub const DESC: LocalizedString = LocalizedString {
+    en: "Set personal emote message settings",
+    ja: "個人エモート設定",
+};
 
 enum Ids {
     GenderSelect,
@@ -74,7 +91,6 @@ impl TryFrom<&str> for Ids {
 async fn handle_interactions(
     context: &Context,
     msg: &Message,
-    author: &User,
     mut user: DbUser,
 ) -> Result<DbUser, HandlerError> {
     while let Some(interaction) = msg
@@ -128,7 +144,8 @@ async fn handle_interactions(
                     .create_interaction_response(context, |res| {
                         res.kind(InteractionResponseType::UpdateMessage)
                             .interaction_response_data(|d| {
-                                d.content("Settings saved!").components(|cmp| cmp)
+                                d.content(SETTINGS_SAVED.for_user(&user))
+                                    .components(|cmp| cmp)
                             })
                     })
                     .await?;
@@ -141,7 +158,7 @@ async fn handle_interactions(
 
         interaction
             .create_interaction_response(context, |res| {
-                create_response(res, InteractionResponseType::UpdateMessage, author, &user)
+                create_response(res, InteractionResponseType::UpdateMessage, &user)
             })
             .await?;
     }
@@ -151,19 +168,18 @@ async fn handle_interactions(
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
     kind: InteractionResponseType,
-    author: &User,
     user: &DbUser,
 ) -> &'a mut CreateInteractionResponse<'b> {
     res.kind(kind).interaction_response_data(|data| {
         data.ephemeral(true)
-            .content(format!("User settings for {}", author.name))
+            .content(CONTENT.for_user(user))
             .components(|c| {
                 c.create_action_row(|row| {
                     row.create_select_menu(|menu| {
                         menu.custom_id(Ids::GenderSelect).options(|opts| {
                             DbGender::iter().for_each(|gender| {
                                 opts.create_option(|o| {
-                                    o.label(gender.to_string(user.language))
+                                    o.label(gender.for_user(user))
                                         .value(gender as i32)
                                         .default_selection(user.gender == gender)
                                 });
@@ -177,7 +193,7 @@ fn create_response<'a, 'b>(
                         menu.custom_id(Ids::LanguageSelect).options(|opts| {
                             DbLanguage::iter().for_each(|lang| {
                                 opts.create_option(|o| {
-                                    o.label(lang.to_string(user.language))
+                                    o.label(lang.for_user(user))
                                         .value(lang as i32)
                                         .default_selection(user.language == lang)
                                 });
@@ -188,31 +204,11 @@ fn create_response<'a, 'b>(
                 });
                 c.create_action_row(|row| {
                     row.create_button(|btn| {
-                        btn.custom_id(Ids::Submit);
-                        btn.label("Save")
+                        btn.custom_id(Ids::Submit).label(SAVE_BTN.for_user(user))
                     })
                 })
             })
     })
-}
-
-async fn determine_user_settings(
-    handler: &crate::Handler,
-    discord_id: String,
-    guild_id: Option<impl ToString>,
-) -> Result<DbUser, HandlerError> {
-    if let Some(user) = handler.db.find_user(discord_id.clone()).await? {
-        return Ok(user);
-    }
-    if let Some(guild_id) = guild_id {
-        if let Some(guild) = handler.db.find_guild(guild_id).await? {
-            return Ok(DbUser {
-                discord_id,
-                ..DbUser::from(guild)
-            });
-        };
-    }
-    Ok(DbUser::default())
 }
 
 pub struct UserSettingsCmd;
@@ -224,9 +220,9 @@ impl AppCmd for UserSettingsCmd {
         Self: Sized,
     {
         let mut cmd = CreateApplicationCommand::default();
-        cmd.name(GlobalCommands::UserSettings)
+        cmd.localized_name(NAME)
             .kind(CommandType::ChatInput)
-            .description("Change personal chat message settings")
+            .localized_desc(DESC)
             .dm_permission(true);
         cmd
     }
@@ -241,20 +237,22 @@ impl AppCmd for UserSettingsCmd {
     {
         trace!("finding existing user");
         let discord_id = cmd.user.id.to_string();
-        let user = determine_user_settings(handler, discord_id, cmd.guild_id).await?;
+        let user = handler
+            .db
+            .determine_user_settings(discord_id, cmd.guild_id)
+            .await?;
 
         cmd.create_interaction_response(context, |res| {
             create_response(
                 res,
                 InteractionResponseType::ChannelMessageWithSource,
-                &cmd.user,
                 &user,
             )
         })
         .await?;
         let msg = cmd.get_interaction_response(context).await?;
         trace!("awaiting interactions");
-        let user = handle_interactions(context, &msg, &cmd.user, user).await?;
+        let user = handle_interactions(context, &msg, user).await?;
 
         handler
             .db
@@ -262,5 +260,9 @@ impl AppCmd for UserSettingsCmd {
             .await?;
 
         Ok(())
+    }
+
+    fn name() -> LocalizedString {
+        NAME
     }
 }

@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use async_trait::async_trait;
 use serenity::{
     builder::CreateApplicationCommand,
@@ -5,9 +7,10 @@ use serenity::{
     prelude::Context,
 };
 use strum::IntoEnumIterator;
-use strum_macros::{AsRefStr, Display, EnumIter, EnumString};
+use strum_macros::{AsRefStr, Display, EnumIter};
+use thiserror::Error;
 
-use crate::{Handler, HandlerError};
+use crate::{util::LocalizedString, Handler, HandlerError};
 
 use self::{
     emote::EmoteCmd, emote_select::EmoteSelectCmd, list_emotes::ListEmotesCmd,
@@ -22,17 +25,12 @@ pub mod list_emotes;
 pub mod server_settings;
 pub mod user_settings;
 
-#[derive(Debug, Clone, Copy, AsRefStr, Display, EnumString, EnumIter)]
+#[derive(Debug, Clone, Copy, AsRefStr, Display, EnumIter)]
 pub enum GlobalCommands {
-    #[strum(serialize = "emote-select")]
     EmoteSelect,
-    #[strum(serialize = "settings")]
     UserSettings,
-    #[strum(serialize = "emote")]
     Emote,
-    #[strum(serialize = "list-emotes")]
     ListEmotes,
-    #[strum(serialize = "server-settings")]
     ServerSettings,
 }
 
@@ -49,6 +47,16 @@ impl GlobalCommands {
 
     pub fn application_commands() -> impl Iterator<Item = CreateApplicationCommand> {
         Self::iter().map(Self::to_application_command)
+    }
+
+    pub fn name(self) -> LocalizedString {
+        match self {
+            GlobalCommands::EmoteSelect => EmoteSelectCmd::name(),
+            GlobalCommands::UserSettings => UserSettingsCmd::name(),
+            GlobalCommands::Emote => EmoteCmd::name(),
+            GlobalCommands::ListEmotes => ListEmotesCmd::name(),
+            GlobalCommands::ServerSettings => ServerSettingsCmd::name(),
+        }
     }
 }
 
@@ -68,5 +76,19 @@ impl CommandsEnum for GlobalCommands {
             GlobalCommands::ServerSettings => ServerSettingsCmd::handle(cmd, handler, context),
         }
         .await
+    }
+}
+
+#[derive(Debug, Clone, Error)]
+#[error("Not a valid command: {0}")]
+pub struct InvalidGlobalCommand(String);
+
+impl FromStr for GlobalCommands {
+    type Err = InvalidGlobalCommand;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        GlobalCommands::iter()
+            .find(|cmd| cmd.name().any_eq(s))
+            .ok_or_else(|| InvalidGlobalCommand(s.to_string()))
     }
 }

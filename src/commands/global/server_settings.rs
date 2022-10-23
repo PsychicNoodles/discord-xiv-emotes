@@ -8,7 +8,7 @@ use serenity::{
         interaction::{
             application_command::ApplicationCommandInteraction, InteractionResponseType,
         },
-        Guild, Message,
+        Message,
     },
     prelude::Context,
 };
@@ -17,11 +17,31 @@ use thiserror::Error;
 
 use crate::{
     commands::AppCmd,
-    db::models::{DbGender, DbGuild, DbLanguage},
+    db::models::{DbGender, DbGuild, DbLanguage, DbUser},
+    util::{CreateApplicationCommandExt, LocalizedString},
     Handler, HandlerError, INTERACTION_TIMEOUT,
 };
 
-use super::GlobalCommands;
+pub const CONTENT: LocalizedString = LocalizedString {
+    en: "Server-wide emote message settings",
+    ja: "サーバーのエモート設定",
+};
+pub const SAVE_BTN: LocalizedString = LocalizedString {
+    en: "Save",
+    ja: "保存",
+};
+pub const SETTINGS_SAVED: LocalizedString = LocalizedString {
+    en: "Settings saved!",
+    ja: "設定を保存しました！",
+};
+pub const NAME: LocalizedString = LocalizedString {
+    en: "server-settings",
+    ja: "サーバー設定",
+};
+pub const DESC: LocalizedString = LocalizedString {
+    en: "Set the default emote message settings used for this server",
+    ja: "このサーバーのデフォルトのエモート設定",
+};
 
 enum Ids {
     GenderSelect,
@@ -71,7 +91,7 @@ impl TryFrom<&str> for Ids {
 async fn handle_interactions(
     context: &Context,
     msg: &Message,
-    guild_name: impl AsRef<str>,
+    user: &DbUser,
     mut db_guild: DbGuild,
 ) -> Result<DbGuild, HandlerError> {
     while let Some(interaction) = msg
@@ -125,7 +145,8 @@ async fn handle_interactions(
                     .create_interaction_response(context, |res| {
                         res.kind(InteractionResponseType::UpdateMessage)
                             .interaction_response_data(|d| {
-                                d.content("Settings saved!").components(|cmp| cmp)
+                                d.content(SETTINGS_SAVED.for_user(user))
+                                    .components(|cmp| cmp)
                             })
                     })
                     .await?;
@@ -138,12 +159,7 @@ async fn handle_interactions(
 
         interaction
             .create_interaction_response(context, |res| {
-                create_response(
-                    res,
-                    InteractionResponseType::UpdateMessage,
-                    guild_name.as_ref(),
-                    &db_guild,
-                )
+                create_response(res, InteractionResponseType::UpdateMessage, user, &db_guild)
             })
             .await?;
     }
@@ -153,19 +169,19 @@ async fn handle_interactions(
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
     kind: InteractionResponseType,
-    guild_name: impl AsRef<str>,
+    user: &DbUser,
     db_guild: &DbGuild,
 ) -> &'a mut CreateInteractionResponse<'b> {
     res.kind(kind).interaction_response_data(|data| {
         data.ephemeral(true)
-            .content(format!("Server settings for {}", guild_name.as_ref()))
+            .content(CONTENT.for_user(user))
             .components(|c| {
                 c.create_action_row(|row| {
                     row.create_select_menu(|menu| {
                         menu.custom_id(Ids::GenderSelect).options(|opts| {
                             DbGender::iter().for_each(|gender| {
                                 opts.create_option(|o| {
-                                    o.label(gender.to_string(db_guild.language))
+                                    o.label(gender.for_user(user))
                                         .value(gender as i32)
                                         .default_selection(db_guild.gender == gender)
                                 });
@@ -179,7 +195,7 @@ fn create_response<'a, 'b>(
                         menu.custom_id(Ids::LanguageSelect).options(|opts| {
                             DbLanguage::iter().for_each(|lang| {
                                 opts.create_option(|o| {
-                                    o.label(lang.to_string(db_guild.language))
+                                    o.label(lang.for_user(user))
                                         .value(lang as i32)
                                         .default_selection(db_guild.language == lang)
                                 });
@@ -190,8 +206,7 @@ fn create_response<'a, 'b>(
                 });
                 c.create_action_row(|row| {
                     row.create_button(|btn| {
-                        btn.custom_id(Ids::Submit);
-                        btn.label("Save")
+                        btn.custom_id(Ids::Submit).label(SAVE_BTN.for_user(user))
                     })
                 })
             })
@@ -207,9 +222,9 @@ impl AppCmd for ServerSettingsCmd {
         Self: Sized,
     {
         let mut cmd = CreateApplicationCommand::default();
-        cmd.name(GlobalCommands::ServerSettings)
+        cmd.localized_name(NAME)
             .kind(CommandType::ChatInput)
-            .description("Change server-wide chat message settings");
+            .localized_desc(DESC);
         cmd
     }
 
@@ -224,12 +239,6 @@ impl AppCmd for ServerSettingsCmd {
         trace!("finding existing guild");
         let guild_id = cmd.guild_id.ok_or(HandlerError::NotGuild)?;
         let discord_id = guild_id.to_string();
-        let guild_name = context.cache.guild_field(guild_id, |g| g.name.clone());
-        let guild_name = if let Some(name) = guild_name {
-            name
-        } else {
-            Guild::get(context, guild_id).await?.name
-        };
         let db_guild = handler
             .db
             .find_guild(discord_id.clone())
@@ -238,19 +247,23 @@ impl AppCmd for ServerSettingsCmd {
                 discord_id,
                 ..Default::default()
             });
+        let user = handler
+            .db
+            .determine_user_settings(cmd.user.id.to_string(), cmd.guild_id)
+            .await?;
 
         cmd.create_interaction_response(context, |res| {
             create_response(
                 res,
                 InteractionResponseType::ChannelMessageWithSource,
-                &guild_name,
+                &user,
                 &db_guild,
             )
         })
         .await?;
         let msg = cmd.get_interaction_response(context).await?;
         trace!("awaiting interactions");
-        let db_guild = handle_interactions(context, &msg, &guild_name, db_guild).await?;
+        let db_guild = handle_interactions(context, &msg, &user, db_guild).await?;
 
         handler
             .db
@@ -258,5 +271,9 @@ impl AppCmd for ServerSettingsCmd {
             .await?;
 
         Ok(())
+    }
+
+    fn name() -> LocalizedString {
+        NAME
     }
 }

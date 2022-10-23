@@ -115,4 +115,23 @@ impl Db {
         debug!("guild lookup: {:?}", res);
         Ok(res)
     }
+
+    pub async fn determine_user_settings(
+        &self,
+        discord_id: String,
+        guild_id: Option<impl ToString>,
+    ) -> Result<DbUser> {
+        if let Some(user) = self.find_user(discord_id.clone()).await? {
+            return Ok(user);
+        }
+        if let Some(guild_id) = guild_id {
+            if let Some(guild) = self.find_guild(guild_id).await? {
+                return Ok(DbUser {
+                    discord_id,
+                    ..DbUser::from(guild)
+                });
+            };
+        }
+        Ok(DbUser::default())
+    }
 }

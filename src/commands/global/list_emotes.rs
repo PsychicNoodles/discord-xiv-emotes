@@ -9,9 +9,20 @@ use serenity::{
     prelude::Context,
 };
 
-use crate::{commands::AppCmd, Handler, HandlerError};
+use crate::{
+    commands::AppCmd,
+    util::{CreateApplicationCommandExt, LocalizedString},
+    Handler, HandlerError,
+};
 
-use super::GlobalCommands;
+pub const NAME: LocalizedString = LocalizedString {
+    en: "emotes",
+    ja: "エモート一覧",
+};
+pub const DESC: LocalizedString = LocalizedString {
+    en: "List all available emotes",
+    ja: "選択できるエモートの一覧",
+};
 
 pub struct ListEmotesCmd;
 
@@ -54,9 +65,9 @@ impl AppCmd for ListEmotesCmd {
         Self: Sized,
     {
         let mut cmd = CreateApplicationCommand::default();
-        cmd.name(GlobalCommands::ListEmotes)
+        cmd.localized_name(NAME)
             .kind(CommandType::ChatInput)
-            .description("List all available emotes")
+            .localized_desc(DESC)
             .dm_permission(true);
         cmd
     }
@@ -91,5 +102,9 @@ impl AppCmd for ListEmotesCmd {
         }
 
         Ok(())
+    }
+
+    fn name() -> LocalizedString {
+        NAME
     }
 }

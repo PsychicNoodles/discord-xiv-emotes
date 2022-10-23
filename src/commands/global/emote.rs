@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 use async_trait::async_trait;
+use const_format::concatcp;
 use log::*;
 use serenity::{
     builder::CreateApplicationCommand,
@@ -11,9 +12,52 @@ use serenity::{
     prelude::{Context, Mentionable},
 };
 
-use crate::{commands::AppCmd, Handler, HandlerError, PREFIX};
+use crate::{
+    commands::AppCmd,
+    util::{CreateApplicationCommandExt, CreateApplicationCommandOptionExt, LocalizedString},
+    Handler, HandlerError, PREFIX,
+};
 
-use super::GlobalCommands;
+use super::list_emotes::NAME as LIST_EMOTES_NAME;
+
+pub const NAME: LocalizedString = LocalizedString {
+    en: "emote",
+    ja: "エモート",
+};
+pub const DESC: LocalizedString = LocalizedString {
+    en: "Send an emote with an optional target user",
+    ja: "エモートを選択してターゲットを任意選択して送信",
+};
+pub const EMOTE_OPTION_NAME: LocalizedString = LocalizedString {
+    en: "emote",
+    ja: "エモート",
+};
+pub const EMOTE_OPTION_DESC: LocalizedString = LocalizedString {
+    en: "Which emote to send",
+    ja: "エモートの指定",
+};
+pub const TARGET_OPTION_NAME: LocalizedString = LocalizedString {
+    en: "target",
+    ja: "ターゲット",
+};
+pub const TARGET_OPTION_DESC: LocalizedString = LocalizedString {
+    en: "Who to target with the emote (can be a mention)",
+    ja: "エモートのターゲット（メンション可）",
+};
+pub const EMOTE_NOT_EXISTS: LocalizedString = LocalizedString {
+    en: concatcp!(
+        "That's not a valid emote! Check the list of known emotes with /",
+        LIST_EMOTES_NAME.en
+    ),
+    ja: concatcp!(
+        "存在しないエモートを入力しました。エモート一覧のコマンドは/",
+        LIST_EMOTES_NAME.ja
+    ),
+};
+pub const EMOTE_SENT: LocalizedString = LocalizedString {
+    en: "Emote sent!",
+    ja: "送信しました！",
+};
 
 fn resolve_mention(data: &CommandData, context: &Context) -> Option<String> {
     if let Some(user) = data.resolved.users.values().next() {
@@ -45,19 +89,19 @@ impl AppCmd for EmoteCmd {
         Self: Sized,
     {
         let mut cmd = CreateApplicationCommand::default();
-        cmd.name(GlobalCommands::Emote)
+        cmd.localized_name(NAME)
             .kind(CommandType::ChatInput)
-            .description("Send an emote with an optional target user")
+            .localized_desc(DESC)
             .create_option(|opt| {
                 opt.kind(CommandOptionType::String)
-                    .name("emote")
-                    .description("Which emote to send")
+                    .localized_name(EMOTE_OPTION_NAME)
+                    .localized_desc(EMOTE_OPTION_DESC)
                     .required(true)
             })
             .create_option(|opt| {
                 opt.kind(CommandOptionType::String)
-                    .name("target")
-                    .description("Who to target with the emote (can be a mention)")
+                    .localized_name(TARGET_OPTION_NAME)
+                    .localized_desc(TARGET_OPTION_DESC)
             })
             .dm_permission(true);
         cmd
@@ -81,6 +125,11 @@ impl AppCmd for EmoteCmd {
         let target = resolve_mention(&cmd.data, context);
         trace!("target is {:?}", target);
 
+        let user_settings = handler
+            .db
+            .determine_user_settings(cmd.user.id.to_string(), cmd.guild_id)
+            .await?;
+
         let emote = match emote.get(0..0) {
             None => {
                 error!("emote is empty");
@@ -94,9 +143,8 @@ impl AppCmd for EmoteCmd {
         if !handler.log_message_repo.contains_emote(&emote) {
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
-                    data.ephemeral(true).content(
-                        "That's not a valid emote! Check the list of known emotes with /emotes",
-                    )
+                    data.ephemeral(true)
+                        .content(EMOTE_NOT_EXISTS.for_user(&user_settings))
                 })
             })
             .await?;
@@ -119,7 +167,8 @@ impl AppCmd for EmoteCmd {
         cmd.create_interaction_response(context, |res| {
             res.interaction_response_data(|d| {
                 d.ephemeral(true).content(format!(
-                    "Emote sent! ({}{})",
+                    "{} ({}{})",
+                    EMOTE_SENT.for_user(&user_settings),
                     emote,
                     if let Some(t) = &target {
                         [" ".to_string(), t.to_string()].concat()
@@ -132,5 +181,9 @@ impl AppCmd for EmoteCmd {
         .await?;
 
         Ok(())
+    }
+
+    fn name() -> LocalizedString {
+        NAME
     }
 }

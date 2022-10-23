@@ -7,7 +7,7 @@ use serenity::{
     prelude::Context,
 };
 
-use crate::{Handler, HandlerError};
+use crate::{util::LocalizedString, Handler, HandlerError};
 
 pub mod global;
 pub mod guild;
@@ -24,6 +24,7 @@ trait AppCmd {
     ) -> Result<(), HandlerError>
     where
         Self: Sized;
+    fn name() -> LocalizedString;
 }
 
 #[async_trait]

@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+pub mod util;
 
 use commands::CommandsEnum;
 use db::{

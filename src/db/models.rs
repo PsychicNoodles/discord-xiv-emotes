@@ -42,6 +42,10 @@ impl DbLanguage {
             DbLanguage::Ja => &emote_data.ja,
         }
     }
+
+    pub fn for_user(self, user: &DbUser) -> &'static str {
+        self.to_string(user.language)
+    }
 }
 
 #[derive(sqlx::Type, Default, Debug, Clone, Copy, PartialEq, Eq, EnumIter, FromRepr)]
@@ -72,6 +76,10 @@ impl DbGender {
             DbLanguage::En => self.to_string_en(),
             DbLanguage::Ja => self.to_string_ja(),
         }
+    }
+
+    pub fn for_user(self, user: &DbUser) -> &'static str {
+        self.to_string(user.language)
     }
 }
 
