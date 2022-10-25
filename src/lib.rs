@@ -10,8 +10,9 @@ use db::{
 use futures::future::{try_join_all, TryFutureExt};
 use log::*;
 use sqlx::PgPool;
-use std::time::Duration;
+use std::{borrow::Cow, time::Duration};
 use thiserror::Error;
+use tokio::sync::OnceCell;
 
 use serenity::{
     async_trait,
@@ -41,10 +42,66 @@ pub struct Handler {
     db: Db,
 }
 
+pub struct MessageDbData<'a> {
+    db: &'a Db,
+    user_discord_id: String,
+    guild_discord_id: Option<String>,
+    user_cell: OnceCell<Option<DbUser>>,
+    guild_cell: OnceCell<Option<DbGuild>>,
+}
+
+struct DbUserOpt(Option<DbUser>);
+
+impl<'a> MessageDbData<'a> {
+    pub fn new(
+        db: &Db,
+        user_discord_id: String,
+        guild_discord_id: Option<String>,
+    ) -> MessageDbData {
+        MessageDbData {
+            db,
+            user_discord_id,
+            guild_discord_id,
+            user_cell: OnceCell::new(),
+            guild_cell: OnceCell::new(),
+        }
+    }
+
+    pub async fn user(&self) -> Result<&Option<DbUser>, HandlerError> {
+        Ok(self
+            .user_cell
+            .get_or_try_init(|| async { self.db.find_user(&self.user_discord_id).await })
+            .await?)
+    }
+
+    pub async fn guild(&self) -> Result<&Option<DbGuild>, HandlerError> {
+        if let Some(discord_id) = &self.guild_discord_id {
+            Ok(self
+                .guild_cell
+                .get_or_try_init(|| async { self.db.find_guild(discord_id).await })
+                .await?)
+        } else {
+            Err(HandlerError::NotGuild)
+        }
+    }
+
+    pub async fn determine_user_settings(&self) -> Result<Cow<DbUser>, HandlerError> {
+        if let Some(user) = self.user().await? {
+            return Ok(Cow::Borrowed(user));
+        }
+        if let Some(guild) = self.guild().await? {
+            return Ok(Cow::Owned(DbUser {
+                discord_id: self.user_discord_id.clone(),
+                ..DbUser::from(guild)
+            }));
+        }
+        Ok(Cow::Owned(DbUser::default()))
+    }
+}
+
 // untargeted messages shouldn't reference target character at all, but just in case
 pub const UNTARGETED_TARGET: Character =
     Character::new("Godbert Manderville", Gender::Male, false, false);
-const PREFIX: &str = "!";
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Error)]
@@ -105,24 +162,35 @@ pub enum HandlerError {
 impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
         trace!("incoming message: {:?}", msg);
-        if !msg.is_own(&context) && msg.content.starts_with(PREFIX) {
+
+        if msg.is_own(&context) {
+            return;
+        }
+
+        let message_db_data = MessageDbData::new(
+            &self.db,
+            msg.author.id.to_string(),
+            msg.guild_id.as_ref().map(ToString::to_string),
+        );
+
+        let prefix = match message_db_data.guild().await {
+            Ok(guild) => guild.unwrap_or_default().prefix,
+            Err(e) => {
+                error!("error communicating with db: {:?}", e);
+                Self::handle_error(e, msg, &context);
+                return;
+            }
+        };
+        if msg.content.starts_with(&prefix) {
             let mut mparts: Vec<_> = msg.content.split_whitespace().collect();
             if let Some(first) = mparts.get_mut(0) {
-                *first = first.strip_prefix(PREFIX).unwrap_or(first);
+                *first = first.strip_prefix(&prefix).unwrap_or(first);
             }
             debug!("message parts: {:?}", mparts);
             match self.process_input(&context, &mparts, &msg).await {
                 Ok(v) => v,
                 Err(err) => {
-                    error!("error during message processing: {:?}", err);
-                    if let Err(e) = msg.reply(context, err.to_string()).await {
-                        error!(
-                            "could not send follow-up message ({}): {:?}",
-                            err.to_string(),
-                            e
-                        );
-                    }
-                    return;
+                    Self::handle_error(err, msg, &context);
                 }
             }
         }
@@ -132,9 +200,17 @@ impl EventHandler for Handler {
         if let Interaction::ApplicationCommand(cmd) = interaction {
             trace!("incoming application command: {:?}", cmd);
 
+            let message_db_data = MessageDbData::new(
+                &self.db,
+                cmd.user.id.to_string(),
+                cmd.guild_id.as_ref().map(ToString::to_string),
+            );
+
             if let Err(err) | Ok(Err(err)) = self
-                .try_handle_commands::<GlobalCommands>(&context, &cmd)
-                .or_else(|_| self.try_handle_commands::<GuildCommands>(&context, &cmd))
+                .try_handle_commands::<GlobalCommands>(&context, &cmd, &message_db_data)
+                .or_else(|_| {
+                    self.try_handle_commands::<GuildCommands>(&context, &cmd, &message_db_data)
+                })
                 .await
             {
                 error!("error during interaction processing: {:?}", err);
@@ -185,13 +261,24 @@ impl EventHandler for Handler {
 }
 
 impl Handler {
+    async fn handle_error(err: HandlerError, msg: Message, context: &Context) {
+        error!("error during message processing: {:?}", err);
+        if let Err(e) = msg.reply(context, err.to_string()).await {
+            error!(
+                "could not send follow-up message ({}): {:?}",
+                err.to_string(),
+                e
+            );
+        }
+    }
+
     pub fn build_emote_message(
         &self,
         emote: &str,
-        author_user: Option<DbUser>,
+        author_user: &Option<DbUser>,
         author_mention: &impl Mentionable,
         target: Option<&str>,
-        guild: Option<DbGuild>,
+        guild: &Option<DbGuild>,
     ) -> Result<String, HandlerError> {
         let mut msg_builder = MessageBuilder::new();
 
@@ -264,30 +351,30 @@ impl Handler {
 
         trace!("parsed command and mention: {:?} {:?}", emote, mention);
 
-        let user = self.db.find_user(msg.author.id).await?;
+        let user = self.db.find_user(msg.author.id.to_string()).await?;
         trace!("user settings: {:?}", user);
 
         match (&emote, mention) {
             (emote, Some(mention)) if self.log_message_repo.contains_emote(emote) => {
                 debug!("emote with mention");
                 let guild = if let Some(guild_id) = msg.guild_id {
-                    self.db.find_guild(guild_id).await?
+                    self.db.find_guild(guild_id.to_string()).await?
                 } else {
                     None
                 };
                 let body =
-                    self.build_emote_message(emote, user, &msg.author, Some(&mention), guild)?;
+                    self.build_emote_message(emote, &user, &msg.author, Some(&mention), &guild)?;
                 msg.reply(context, body).await?;
                 Ok(())
             }
             (emote, None) if self.log_message_repo.contains_emote(emote) => {
                 debug!("emote without mention");
                 let guild = if let Some(guild_id) = msg.guild_id {
-                    self.db.find_guild(guild_id).await?
+                    self.db.find_guild(guild_id.to_string()).await?
                 } else {
                     None
                 };
-                let body = self.build_emote_message(emote, user, &msg.author, None, guild)?;
+                let body = self.build_emote_message(emote, &user, &msg.author, None, &guild)?;
                 msg.reply(context, body).await?;
                 Ok(())
             }
@@ -295,17 +382,18 @@ impl Handler {
         }
     }
 
-    async fn try_handle_commands<T>(
+    async fn try_handle_commands<'a, T>(
         &self,
         context: &Context,
         cmd: &ApplicationCommandInteraction,
+        message_db_data: &MessageDbData<'a>,
     ) -> Result<Result<(), HandlerError>, HandlerError>
     where
         T: CommandsEnum,
     {
         if let Ok(app_cmd) = T::from_str(cmd.data.name.as_str()) {
             trace!("handing off to app command handler");
-            Ok(app_cmd.handle(cmd, self, context).await)
+            Ok(app_cmd.handle(cmd, self, context, message_db_data).await)
         } else {
             Err(HandlerError::UnrecognizedCommand(cmd.data.name.to_string()))
         }

@@ -7,7 +7,7 @@ use serenity::{
 use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, Display, EnumIter, EnumString};
 
-use crate::{Handler, HandlerError};
+use crate::{Handler, HandlerError, MessageDbData};
 
 use super::CommandsEnum;
 
@@ -31,6 +31,7 @@ impl CommandsEnum for GuildCommands {
         _cmd: &ApplicationCommandInteraction,
         _handler: &Handler,
         _context: &Context,
+        _message_db_data: &MessageDbData,
     ) -> Result<(), HandlerError> {
         // match self {}.await
         Ok(())

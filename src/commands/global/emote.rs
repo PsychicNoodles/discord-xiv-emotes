@@ -15,7 +15,7 @@ use serenity::{
 use crate::{
     commands::AppCmd,
     util::{CreateApplicationCommandExt, CreateApplicationCommandOptionExt, LocalizedString},
-    Handler, HandlerError, PREFIX,
+    Handler, HandlerError, MessageDbData,
 };
 
 use super::list_emotes::NAME as LIST_EMOTES_NAME;
@@ -111,6 +111,7 @@ impl AppCmd for EmoteCmd {
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,
         context: &Context,
+        message_db_data: &MessageDbData,
     ) -> Result<(), HandlerError>
     where
         Self: Sized,
@@ -125,10 +126,7 @@ impl AppCmd for EmoteCmd {
         let target = resolve_mention(&cmd.data, context);
         trace!("target is {:?}", target);
 
-        let user_settings = handler
-            .db
-            .determine_user_settings(cmd.user.id.to_string(), cmd.guild_id)
-            .await?;
+        let user_settings = message_db_data.determine_user_settings().await?;
 
         let emote = match emote.get(0..0) {
             None => {
@@ -151,12 +149,8 @@ impl AppCmd for EmoteCmd {
             return Ok(());
         }
 
-        let user = handler.db.find_user(cmd.user.id).await?;
-        let guild = if let Some(guild_id) = cmd.guild_id {
-            handler.db.find_guild(guild_id).await?
-        } else {
-            None
-        };
+        let user = message_db_data.user().await?;
+        let guild = message_db_data.guild().await?;
 
         let body =
             handler.build_emote_message(&emote, user, &cmd.user, target.as_deref(), guild)?;

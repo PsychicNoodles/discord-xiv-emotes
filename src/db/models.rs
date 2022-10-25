@@ -130,6 +130,12 @@ impl DbUser {
 
 impl From<DbGuild> for DbUser {
     fn from(g: DbGuild) -> Self {
+        Self::from(&g)
+    }
+}
+
+impl From<&DbGuild> for DbUser {
+    fn from(g: &DbGuild) -> Self {
         DbUser {
             language: g.language,
             gender: g.gender,
@@ -169,12 +175,15 @@ impl DbUserOpt {
     }
 }
 
+const DEFAULT_PREFIX: &str = "!";
+
 #[derive(sqlx::FromRow, Debug, Clone)]
 #[sqlx(type_name = "guild")]
 pub struct DbGuild {
     pub discord_id: String,
     pub language: DbLanguage,
     pub gender: DbGender,
+    pub prefix: String,
     pub insert_tm: time::OffsetDateTime,
     pub update_tm: time::OffsetDateTime,
 }
@@ -185,6 +194,7 @@ impl Default for DbGuild {
             discord_id: String::default(),
             language: DbLanguage::default(),
             gender: DbGender::default(),
+            prefix: DEFAULT_PREFIX.to_string(),
             insert_tm: OffsetDateTime::now_utc(),
             update_tm: OffsetDateTime::now_utc(),
         }

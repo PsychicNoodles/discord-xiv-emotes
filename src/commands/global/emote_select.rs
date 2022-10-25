@@ -24,7 +24,7 @@ use crate::{
     commands::AppCmd,
     db::models::DbUser,
     util::{CreateApplicationCommandExt, LocalizedString},
-    HandlerError, INTERACTION_TIMEOUT, UNTARGETED_TARGET,
+    HandlerError, MessageDbData, INTERACTION_TIMEOUT, UNTARGETED_TARGET,
 };
 
 pub const CONTENT: LocalizedString = LocalizedString {
@@ -231,44 +231,6 @@ fn create_response<'a, 'b>(
             .components(|c| {
                 c.create_action_row(|row| {
                     row.create_select_menu(|menu| {
-                        menu.custom_id(Ids::TargetSelect)
-                            .placeholder(
-                                selection
-                                    .selected_target_value
-                                    .as_ref()
-                                    .and_then(|t| match t {
-                                        Target::Plain(s) => Some(s.as_str()),
-                                        _ => None,
-                                    })
-                                    .unwrap_or_else(|| NO_USER_SELECTED.for_user(user)),
-                            )
-                            .options(|opts| {
-                                for member in members {
-                                    opts.create_option(|o| {
-                                        let value = member.id;
-                                        o.label(&member.name).value(value).default_selection(
-                                            selection
-                                                .selected_target_value
-                                                .as_ref()
-                                                .map(
-                                                    |t| matches!(t, Target::User(u) if *u == value),
-                                                )
-                                                .unwrap_or(false),
-                                        )
-                                    });
-                                }
-                                opts
-                            })
-                    })
-                });
-                c.create_action_row(|row| {
-                    row.create_button(|btn| {
-                        btn.custom_id(Ids::InputTargetBtn)
-                            .label(INPUT_USER_BTN.for_user(user))
-                    })
-                });
-                c.create_action_row(|row| {
-                    row.create_select_menu(|menu| {
                         menu.custom_id(Ids::EmoteSelect)
                             .placeholder(NO_EMOTE_SELECTED.for_user(user))
                             .options(|opts| {
@@ -311,6 +273,44 @@ fn create_response<'a, 'b>(
                                     .map(|off| off + EMOTE_LIST_OFFSET_STEP >= emote_list.len())
                                     .unwrap_or(false),
                             )
+                    })
+                });
+                c.create_action_row(|row| {
+                    row.create_select_menu(|menu| {
+                        menu.custom_id(Ids::TargetSelect)
+                            .placeholder(
+                                selection
+                                    .selected_target_value
+                                    .as_ref()
+                                    .and_then(|t| match t {
+                                        Target::Plain(s) => Some(s.as_str()),
+                                        _ => None,
+                                    })
+                                    .unwrap_or_else(|| NO_USER_SELECTED.for_user(user)),
+                            )
+                            .options(|opts| {
+                                for member in members {
+                                    opts.create_option(|o| {
+                                        let value = member.id;
+                                        o.label(&member.name).value(value).default_selection(
+                                            selection
+                                                .selected_target_value
+                                                .as_ref()
+                                                .map(
+                                                    |t| matches!(t, Target::User(u) if *u == value),
+                                                )
+                                                .unwrap_or(false),
+                                        )
+                                    });
+                                }
+                                opts
+                            })
+                    })
+                });
+                c.create_action_row(|row| {
+                    row.create_button(|btn| {
+                        btn.custom_id(Ids::InputTargetBtn)
+                            .label(INPUT_USER_BTN.for_user(user))
                     })
                 });
                 c.create_action_row(|row| {
@@ -486,6 +486,7 @@ impl AppCmd for EmoteSelectCmd {
         cmd: &ApplicationCommandInteraction,
         handler: &crate::Handler,
         context: &Context,
+        message_db_data: &MessageDbData,
     ) -> Result<(), HandlerError>
     where
         Self: Sized,
@@ -507,10 +508,7 @@ impl AppCmd for EmoteSelectCmd {
         };
         trace!("potential members: {:?}", members);
 
-        let user_settings = handler
-            .db
-            .determine_user_settings(cmd.user.id.to_string(), cmd.guild_id)
-            .await?;
+        let user_settings = message_db_data.determine_user_settings().await?;
 
         trace!("creating interaction response");
         let emote_list: Vec<_> = handler.log_message_repo.emote_list_by_id().collect();
@@ -530,13 +528,8 @@ impl AppCmd for EmoteSelectCmd {
         trace!("awaiting interactions");
         let res = handle_interactions(context, &msg, &user_settings, &emote_list, members).await?;
 
-        let user = handler.db.find_user(cmd.user.id).await?;
-        let guild = if let Some(guild_id) = cmd.guild_id {
-            handler.db.find_guild(guild_id).await?
-        } else {
-            None
-        };
-
+        let user = message_db_data.user().await?;
+        let guild = message_db_data.guild().await?;
         let body = handler.build_emote_message(
             &res.emote,
             user,

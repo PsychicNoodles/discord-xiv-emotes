@@ -11,7 +11,7 @@ use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, Display, EnumIter};
 use thiserror::Error;
 
-use crate::{util::LocalizedString, Handler, HandlerError};
+use crate::{util::LocalizedString, Handler, HandlerError, MessageDbData};
 
 use self::{
     emote::EmoteCmd, emote_select::EmoteSelectCmd, list_emotes::ListEmotesCmd,
@@ -68,13 +68,22 @@ impl CommandsEnum for GlobalCommands {
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,
         context: &Context,
+        message_db_data: &MessageDbData,
     ) -> Result<(), HandlerError> {
         match self {
-            GlobalCommands::EmoteSelect => EmoteSelectCmd::handle(cmd, handler, context),
-            GlobalCommands::UserSettings => UserSettingsCmd::handle(cmd, handler, context),
-            GlobalCommands::Emote => EmoteCmd::handle(cmd, handler, context),
-            GlobalCommands::ListEmotes => ListEmotesCmd::handle(cmd, handler, context),
-            GlobalCommands::ServerSettings => ServerSettingsCmd::handle(cmd, handler, context),
+            GlobalCommands::EmoteSelect => {
+                EmoteSelectCmd::handle(cmd, handler, context, message_db_data)
+            }
+            GlobalCommands::UserSettings => {
+                UserSettingsCmd::handle(cmd, handler, context, message_db_data)
+            }
+            GlobalCommands::Emote => EmoteCmd::handle(cmd, handler, context, message_db_data),
+            GlobalCommands::ListEmotes => {
+                ListEmotesCmd::handle(cmd, handler, context, message_db_data)
+            }
+            GlobalCommands::ServerSettings => {
+                ServerSettingsCmd::handle(cmd, handler, context, message_db_data)
+            }
         }
         .await
     }

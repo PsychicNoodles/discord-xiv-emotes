@@ -7,7 +7,7 @@ use serenity::{
     prelude::Context,
 };
 
-use crate::{util::LocalizedString, Handler, HandlerError};
+use crate::{util::LocalizedString, Handler, HandlerError, MessageDbData};
 
 pub mod global;
 pub mod guild;
@@ -21,6 +21,7 @@ trait AppCmd {
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,
         context: &Context,
+        message_db_data: &MessageDbData,
     ) -> Result<(), HandlerError>
     where
         Self: Sized;
@@ -34,6 +35,7 @@ pub trait CommandsEnum: FromStr {
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,
         context: &Context,
+        message_db_data: &MessageDbData,
     ) -> Result<(), HandlerError>;
 }
 

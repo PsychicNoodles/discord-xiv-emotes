@@ -5,6 +5,7 @@ use serenity::{
     builder::{CreateApplicationCommand, CreateInteractionResponse},
     model::prelude::{
         command::CommandType,
+        component::{ActionRowComponent, InputTextStyle},
         interaction::{
             application_command::ApplicationCommandInteraction, InteractionResponseType,
         },
@@ -26,6 +27,14 @@ pub const CONTENT: LocalizedString = LocalizedString {
     en: "Server-wide emote message settings",
     ja: "サーバーのエモート設定",
 };
+pub const PREFIX_INPUT_BTN: LocalizedString = LocalizedString {
+    en: "Input a command prefix, currently: ",
+    ja: "コマンドプレフィックスを入力、現在：",
+};
+pub const PREFIX_INPUT_MODAL_CONTENT: LocalizedString = LocalizedString {
+    en: "Input a command prefix",
+    ja: "コマンドプレフィックスを入力してください",
+};
 pub const SAVE_BTN: LocalizedString = LocalizedString {
     en: "Save",
     ja: "保存",
@@ -43,9 +52,13 @@ pub const DESC: LocalizedString = LocalizedString {
     ja: "このサーバーのデフォルトのエモート設定",
 };
 
+const PREFIX_INPUT_MODAL: &str = "prefix_input_modal";
+const PREFIX_INPUT_MODAL_BTN: &str = "prefix_input_modal_btn";
+
 enum Ids {
     GenderSelect,
     LanguageSelect,
+    PrefixInputBtn,
     Submit,
 }
 
@@ -60,6 +73,7 @@ impl From<&Ids> for &'static str {
         match ids {
             Ids::GenderSelect => "gender_select",
             Ids::LanguageSelect => "language_select",
+            Ids::PrefixInputBtn => "prefix_input_btn",
             Ids::Submit => "submit",
         }
     }
@@ -82,6 +96,7 @@ impl TryFrom<&str> for Ids {
         match value {
             "gender_select" => Ok(Ids::GenderSelect),
             "language_select" => Ok(Ids::LanguageSelect),
+            "prefix_input_btn" => Ok(Ids::PrefixInputBtn),
             "submit" => Ok(Ids::Submit),
             s => Err(InvalidComponentId(s.to_string())),
         }
@@ -139,6 +154,57 @@ async fn handle_interactions(
                 };
                 debug!("language selected: {:?}", lang);
                 db_guild.language = lang;
+            }
+            Ok(Ids::PrefixInputBtn) => {
+                debug!("prefix input");
+                interaction
+                    .create_interaction_response(context, |res| {
+                        res.kind(InteractionResponseType::Modal)
+                            .interaction_response_data(|d| {
+                                d.content(PREFIX_INPUT_MODAL_CONTENT.for_user(user))
+                                    .components(|c| {
+                                        c.create_action_row(|row| {
+                                            row.create_input_text(|inp| {
+                                                inp.custom_id(PREFIX_INPUT_MODAL)
+                                                    .style(InputTextStyle::Short)
+                                                    .label("Target name")
+                                            })
+                                        })
+                                    })
+                                    .title("Custom target input")
+                                    .custom_id(PREFIX_INPUT_MODAL_BTN)
+                            })
+                    })
+                    .await?;
+
+                if let Some(modal_interaction) = msg
+                    .await_modal_interaction(context)
+                    .timeout(INTERACTION_TIMEOUT)
+                    .await
+                {
+                    match &modal_interaction.data.components[0].components[0] {
+                        ActionRowComponent::InputText(cmp) => {
+                            trace!("setting prefix to: {}", cmp.value);
+                            db_guild.prefix = cmp.value.clone();
+                            modal_interaction
+                                .create_interaction_response(context, |res| {
+                                    create_response(
+                                        res,
+                                        InteractionResponseType::UpdateMessage,
+                                        user,
+                                        &db_guild,
+                                    )
+                                })
+                                .await?;
+                        }
+                        cmp => {
+                            error!("modal component was not an input text: {:?}", cmp);
+                            return Err(HandlerError::UnexpectedData);
+                        }
+                    }
+                }
+                // don't send typical interaction response
+                continue;
             }
             Ok(Ids::Submit) => {
                 interaction
@@ -206,6 +272,12 @@ fn create_response<'a, 'b>(
                 });
                 c.create_action_row(|row| {
                     row.create_button(|btn| {
+                        btn.custom_id(Ids::PrefixInputBtn)
+                            .label([PREFIX_INPUT_BTN.for_user(user), &db_guild.prefix].concat())
+                    })
+                });
+                c.create_action_row(|row| {
+                    row.create_button(|btn| {
                         btn.custom_id(Ids::Submit).label(SAVE_BTN.for_user(user))
                     })
                 })
@@ -267,7 +339,12 @@ impl AppCmd for ServerSettingsCmd {
 
         handler
             .db
-            .upsert_guild(db_guild.discord_id, db_guild.language, db_guild.gender)
+            .upsert_guild(
+                db_guild.discord_id,
+                db_guild.language,
+                db_guild.gender,
+                db_guild.prefix,
+            )
             .await?;
 
         Ok(())
