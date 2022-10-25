@@ -127,6 +127,7 @@ impl AppCmd for EmoteCmd {
         trace!("target is {:?}", target);
 
         let user_settings = message_db_data.determine_user_settings().await?;
+        let guild = message_db_data.guild().await?.clone().unwrap_or_default();
 
         let emote = match emote.get(0..0) {
             None => {
@@ -134,8 +135,7 @@ impl AppCmd for EmoteCmd {
                 return Err(HandlerError::UnrecognizedEmote("(empty)".to_string()));
             }
             Some("/") => Cow::Borrowed(*emote),
-            Some(PREFIX) => Cow::Borrowed(emote.trim_start_matches(PREFIX)),
-            // fixme
+            Some(s) if s == guild.prefix => Cow::Borrowed(emote.trim_start_matches(&guild.prefix)),
             Some(_) => Cow::Owned(["/", emote].concat()),
         };
         trace!("checking if emote exists: {:?}", emote);
