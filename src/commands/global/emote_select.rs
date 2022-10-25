@@ -528,15 +528,14 @@ impl AppCmd for EmoteSelectCmd {
         trace!("awaiting interactions");
         let res = handle_interactions(context, &msg, &user_settings, &emote_list, members).await?;
 
-        let user = message_db_data.user().await?;
-        let guild = message_db_data.guild().await?;
-        let body = handler.build_emote_message(
-            &res.emote,
-            user,
-            &msg.author,
-            res.target.as_ref().map(|t| t.to_string()).as_deref(),
-            guild,
-        )?;
+        let body = handler
+            .build_emote_message(
+                &res.emote,
+                message_db_data,
+                &msg.author,
+                res.target.as_ref().map(|t| t.to_string()).as_deref(),
+            )
+            .await?;
         cmd.channel_id
             .send_message(context, |m| m.content(body))
             .await?;

@@ -19,7 +19,7 @@ use crate::{
     commands::AppCmd,
     db::models::{DbGender, DbLanguage, DbUser},
     util::{CreateApplicationCommandExt, LocalizedString},
-    HandlerError, INTERACTION_TIMEOUT,
+    HandlerError, MessageDbData, INTERACTION_TIMEOUT,
 };
 
 pub const CONTENT: LocalizedString = LocalizedString {
@@ -231,16 +231,13 @@ impl AppCmd for UserSettingsCmd {
         cmd: &ApplicationCommandInteraction,
         handler: &crate::Handler,
         context: &Context,
+        message_db_data: &MessageDbData,
     ) -> Result<(), HandlerError>
     where
         Self: Sized,
     {
         trace!("finding existing user");
-        let discord_id = cmd.user.id.to_string();
-        let user = handler
-            .db
-            .determine_user_settings(discord_id, cmd.guild_id)
-            .await?;
+        let user = message_db_data.determine_user_settings().await?;
 
         cmd.create_interaction_response(context, |res| {
             create_response(
@@ -252,7 +249,7 @@ impl AppCmd for UserSettingsCmd {
         .await?;
         let msg = cmd.get_interaction_response(context).await?;
         trace!("awaiting interactions");
-        let user = handle_interactions(context, &msg, user).await?;
+        let user = handle_interactions(context, &msg, user.into_owned()).await?;
 
         handler
             .db

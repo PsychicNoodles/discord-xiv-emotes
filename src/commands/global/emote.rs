@@ -135,6 +135,7 @@ impl AppCmd for EmoteCmd {
             }
             Some("/") => Cow::Borrowed(*emote),
             Some(PREFIX) => Cow::Borrowed(emote.trim_start_matches(PREFIX)),
+            // fixme
             Some(_) => Cow::Owned(["/", emote].concat()),
         };
         trace!("checking if emote exists: {:?}", emote);
@@ -149,11 +150,9 @@ impl AppCmd for EmoteCmd {
             return Ok(());
         }
 
-        let user = message_db_data.user().await?;
-        let guild = message_db_data.guild().await?;
-
-        let body =
-            handler.build_emote_message(&emote, user, &cmd.user, target.as_deref(), guild)?;
+        let body = handler
+            .build_emote_message(&emote, message_db_data, &cmd.user, target.as_deref())
+            .await?;
         cmd.channel_id
             .send_message(context, |m| m.content(body))
             .await?;

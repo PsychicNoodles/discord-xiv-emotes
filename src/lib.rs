@@ -50,8 +50,6 @@ pub struct MessageDbData<'a> {
     guild_cell: OnceCell<Option<DbGuild>>,
 }
 
-struct DbUserOpt(Option<DbUser>);
-
 impl<'a> MessageDbData<'a> {
     pub fn new(
         db: &Db,
@@ -174,10 +172,10 @@ impl EventHandler for Handler {
         );
 
         let prefix = match message_db_data.guild().await {
-            Ok(guild) => guild.unwrap_or_default().prefix,
+            Ok(guild) => guild.clone().unwrap_or_default().prefix,
             Err(e) => {
                 error!("error communicating with db: {:?}", e);
-                Self::handle_error(e, msg, &context);
+                Self::handle_error(e, msg, &context).await;
                 return;
             }
         };
@@ -187,10 +185,13 @@ impl EventHandler for Handler {
                 *first = first.strip_prefix(&prefix).unwrap_or(first);
             }
             debug!("message parts: {:?}", mparts);
-            match self.process_input(&context, &mparts, &msg).await {
+            match self
+                .process_input(&context, &mparts, &msg, &message_db_data)
+                .await
+            {
                 Ok(v) => v,
                 Err(err) => {
-                    Self::handle_error(err, msg, &context);
+                    Self::handle_error(err, msg, &context).await;
                 }
             }
         }
@@ -272,21 +273,19 @@ impl Handler {
         }
     }
 
-    pub fn build_emote_message(
+    pub async fn build_emote_message<'a>(
         &self,
         emote: &str,
-        author_user: &Option<DbUser>,
+        message_db_data: &MessageDbData<'a>,
         author_mention: &impl Mentionable,
         target: Option<&str>,
-        guild: &Option<DbGuild>,
     ) -> Result<String, HandlerError> {
         let mut msg_builder = MessageBuilder::new();
 
-        let (language, gender) = match (&author_user, &guild) {
-            (Some(a), _) => (a.language, a.gender),
-            (_, Some(g)) => (g.language, g.gender),
-            _ => (Default::default(), Default::default()),
-        };
+        let user = message_db_data.determine_user_settings().await?;
+        let DbUser {
+            language, gender, ..
+        } = user.as_ref();
 
         let messages = self.log_message_repo.messages(emote)?;
         let localized_messages = language.with_emote_data(messages);
@@ -335,11 +334,12 @@ impl Handler {
         Ok(msg_builder.build())
     }
 
-    async fn process_input(
+    async fn process_input<'a>(
         &self,
         context: &Context,
         mparts: &[&str],
         msg: &Message,
+        message_db_data: &MessageDbData<'a>,
     ) -> Result<(), HandlerError> {
         let (original_emote, mention) = mparts.split_first().ok_or(HandlerError::EmptyCommand)?;
         let emote = ["/", original_emote].concat();
@@ -351,30 +351,17 @@ impl Handler {
 
         trace!("parsed command and mention: {:?} {:?}", emote, mention);
 
-        let user = self.db.find_user(msg.author.id.to_string()).await?;
-        trace!("user settings: {:?}", user);
-
         match (&emote, mention) {
-            (emote, Some(mention)) if self.log_message_repo.contains_emote(emote) => {
-                debug!("emote with mention");
-                let guild = if let Some(guild_id) = msg.guild_id {
-                    self.db.find_guild(guild_id.to_string()).await?
-                } else {
-                    None
-                };
-                let body =
-                    self.build_emote_message(emote, &user, &msg.author, Some(&mention), &guild)?;
-                msg.reply(context, body).await?;
-                Ok(())
-            }
-            (emote, None) if self.log_message_repo.contains_emote(emote) => {
-                debug!("emote without mention");
-                let guild = if let Some(guild_id) = msg.guild_id {
-                    self.db.find_guild(guild_id.to_string()).await?
-                } else {
-                    None
-                };
-                let body = self.build_emote_message(emote, &user, &msg.author, None, &guild)?;
+            (emote, mention_opt) if self.log_message_repo.contains_emote(emote) => {
+                debug!("emote, mention: {}", mention_opt.is_some());
+                let body = self
+                    .build_emote_message(
+                        emote,
+                        message_db_data,
+                        &msg.author,
+                        mention_opt.as_ref().map(AsRef::as_ref),
+                    )
+                    .await?;
                 msg.reply(context, body).await?;
                 Ok(())
             }

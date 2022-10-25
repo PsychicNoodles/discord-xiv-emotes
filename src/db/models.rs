@@ -85,6 +85,12 @@ impl DbGender {
 
 impl From<DbGender> for Gender {
     fn from(g: DbGender) -> Self {
+        From::from(&g)
+    }
+}
+
+impl From<&DbGender> for Gender {
+    fn from(g: &DbGender) -> Self {
         match g {
             DbGender::M => Gender::Male,
             DbGender::F => Gender::Female,

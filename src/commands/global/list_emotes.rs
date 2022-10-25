@@ -12,7 +12,7 @@ use serenity::{
 use crate::{
     commands::AppCmd,
     util::{CreateApplicationCommandExt, LocalizedString},
-    Handler, HandlerError,
+    Handler, HandlerError, MessageDbData,
 };
 
 pub const NAME: LocalizedString = LocalizedString {
@@ -22,6 +22,10 @@ pub const NAME: LocalizedString = LocalizedString {
 pub const DESC: LocalizedString = LocalizedString {
     en: "List all available emotes",
     ja: "選択できるエモートの一覧",
+};
+pub const LIST_MSG_PREFIX: LocalizedString = LocalizedString {
+    en: "List of emotes",
+    ja: "エモート一覧",
 };
 
 pub struct ListEmotesCmd;
@@ -76,13 +80,14 @@ impl AppCmd for ListEmotesCmd {
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,
         context: &Context,
+        message_db_data: &MessageDbData,
     ) -> Result<(), HandlerError>
     where
         Self: Sized,
     {
-        const EMOTE_LIST_PREFIX: &str = "List of emotes";
+        let user = message_db_data.determine_user_settings().await?;
         let bodies = split_by_max_message_len(
-            EMOTE_LIST_PREFIX,
+            LIST_MSG_PREFIX.for_user(&user),
             handler.log_message_repo.emote_list_by_id().cloned(),
         );
         debug!("emotes response is {} messages long", bodies.len());

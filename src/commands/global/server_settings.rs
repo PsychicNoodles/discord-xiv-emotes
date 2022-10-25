@@ -20,7 +20,7 @@ use crate::{
     commands::AppCmd,
     db::models::{DbGender, DbGuild, DbLanguage, DbUser},
     util::{CreateApplicationCommandExt, LocalizedString},
-    Handler, HandlerError, INTERACTION_TIMEOUT,
+    Handler, HandlerError, MessageDbData, INTERACTION_TIMEOUT,
 };
 
 pub const CONTENT: LocalizedString = LocalizedString {
@@ -304,47 +304,31 @@ impl AppCmd for ServerSettingsCmd {
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,
         context: &Context,
+        message_db_data: &MessageDbData,
     ) -> Result<(), HandlerError>
     where
         Self: Sized,
     {
         trace!("finding existing guild");
-        let guild_id = cmd.guild_id.ok_or(HandlerError::NotGuild)?;
-        let discord_id = guild_id.to_string();
-        let db_guild = handler
-            .db
-            .find_guild(discord_id.clone())
-            .await?
-            .unwrap_or(DbGuild {
-                discord_id,
-                ..Default::default()
-            });
-        let user = handler
-            .db
-            .determine_user_settings(cmd.user.id.to_string(), cmd.guild_id)
-            .await?;
+        let user = message_db_data.determine_user_settings().await?;
+        let guild = message_db_data.guild().await?.clone().unwrap_or_default();
 
         cmd.create_interaction_response(context, |res| {
             create_response(
                 res,
                 InteractionResponseType::ChannelMessageWithSource,
                 &user,
-                &db_guild,
+                &guild,
             )
         })
         .await?;
         let msg = cmd.get_interaction_response(context).await?;
         trace!("awaiting interactions");
-        let db_guild = handle_interactions(context, &msg, &user, db_guild).await?;
+        let guild = handle_interactions(context, &msg, &user, guild).await?;
 
         handler
             .db
-            .upsert_guild(
-                db_guild.discord_id,
-                db_guild.language,
-                db_guild.gender,
-                db_guild.prefix,
-            )
+            .upsert_guild(guild.discord_id, guild.language, guild.gender, guild.prefix)
             .await?;
 
         Ok(())
