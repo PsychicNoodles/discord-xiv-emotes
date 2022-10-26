@@ -54,10 +54,10 @@ pub const EMOTE_NOT_EXISTS: LocalizedString = LocalizedString {
         LIST_EMOTES_NAME.ja
     ),
 };
-pub const EMOTE_SENT: LocalizedString = LocalizedString {
-    en: "Emote sent!",
-    ja: "送信しました！",
-};
+// pub const EMOTE_SENT: LocalizedString = LocalizedString {
+//     en: "Emote sent!",
+//     ja: "送信しました！",
+// };
 
 #[instrument(skip(context))]
 fn resolve_mention(data: &CommandData, context: &Context) -> Option<String> {
