@@ -19,7 +19,7 @@ use serenity::{
     model::prelude::{
         command::Command,
         interaction::{application_command::ApplicationCommandInteraction, Interaction},
-        Message, Ready,
+        Mention, Message, Ready,
     },
     prelude::Mentionable,
     prelude::{Context, EventHandler, GatewayIntents},
@@ -269,14 +269,28 @@ impl EventHandler for Handler {
 
 impl Handler {
     #[instrument(skip(self))]
-    pub async fn build_emote_message<'a>(
+    pub async fn build_emote_message<'a, T: Mentionable + std::fmt::Debug>(
         &self,
         emote: &str,
         message_db_data: &MessageDbData<'a>,
-        author_mention: &(impl Mentionable + std::fmt::Debug),
+        author_mentionable: &T,
         target: Option<&str>,
     ) -> Result<String, HandlerError> {
-        let mut msg_builder = MessageBuilder::new();
+        enum BuilderAction<'a> {
+            Mention(Mention),
+            Text(Cow<'a, str>),
+        }
+
+        impl<'a> BuilderAction<'a> {
+            fn do_action(self, msg_builder: &mut MessageBuilder) {
+                match self {
+                    BuilderAction::Mention(m) => msg_builder.mention(&m),
+                    BuilderAction::Text(s) => msg_builder.push(s),
+                };
+            }
+        }
+
+        let author_mention = author_mentionable.mention();
 
         let user = message_db_data.determine_user_settings().await?;
         let DbUser {
@@ -304,30 +318,32 @@ impl Handler {
                 .unwrap_or(UNTARGETED_TARGET),
         )?;
 
-        let mut errs: Vec<_> = condition_texts
-            .map_texts_mut(&answers, |text| {
-                match text {
-                    Text::Dynamic(d) => match d {
-                        DynamicText::NpcOriginName
-                        | DynamicText::PlayerOriginNameEn
-                        | DynamicText::PlayerOriginNameJp => msg_builder.mention(author_mention),
-                        DynamicText::NpcTargetName
-                        | DynamicText::PlayerTargetNameEn
-                        | DynamicText::PlayerTargetNameJp => match &target {
-                            Some(t) => msg_builder.push(t),
-                            None => return Some(HandlerError::TargetNone),
-                        },
+        Ok(condition_texts
+            .into_map_texts(&answers, move |text| match text {
+                Text::Dynamic(d) => match d {
+                    DynamicText::NpcOriginName
+                    | DynamicText::PlayerOriginNameEn
+                    | DynamicText::PlayerOriginNameJp => Ok(BuilderAction::Mention(author_mention)),
+                    DynamicText::NpcTargetName
+                    | DynamicText::PlayerTargetNameEn
+                    | DynamicText::PlayerTargetNameJp => match &target {
+                        Some(t) => Ok(BuilderAction::Text(Cow::Borrowed(t))),
+                        None => Err(HandlerError::TargetNone),
                     },
-                    Text::Static(s) => msg_builder.push(s),
-                };
-                None
+                },
+                Text::Static(s) => Ok(BuilderAction::Text(Cow::Owned(s))),
             })
-            .collect();
-        if !errs.is_empty() {
-            error!("errors during text processing: {:?}", errs);
-            return Err(errs.remove(0));
-        }
-        Ok(msg_builder.build())
+            .fold(Ok(MessageBuilder::new()), |builder_res, action_res| match (
+                builder_res,
+                action_res,
+            ) {
+                (Err(e), _) | (_, Err(e)) => Err(e),
+                (Ok(mut builder), Ok(action)) => {
+                    action.do_action(&mut builder);
+                    Ok(builder)
+                }
+            })?
+            .build())
     }
 
     #[instrument(skip(self, context))]
