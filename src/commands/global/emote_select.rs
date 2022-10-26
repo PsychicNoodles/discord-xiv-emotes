@@ -571,7 +571,7 @@ impl AppCmd for EmoteSelectCmd {
             .build_emote_message(
                 &res.emote,
                 message_db_data,
-                &msg.author,
+                &cmd.user,
                 res.target.as_ref().map(|t| t.to_string()).as_deref(),
             )
             .await?;
