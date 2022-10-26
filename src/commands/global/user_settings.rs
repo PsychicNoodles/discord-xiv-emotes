@@ -141,7 +141,7 @@ async fn handle_interaction(
                 .create_interaction_response(context, |res| {
                     res.kind(InteractionResponseType::UpdateMessage)
                         .interaction_response_data(|d| {
-                            d.content(SETTINGS_SAVED.for_user(&user))
+                            d.content(SETTINGS_SAVED.for_user(user))
                                 .components(|cmp| cmp)
                         })
                 })
@@ -155,7 +155,7 @@ async fn handle_interaction(
 
     interaction
         .create_interaction_response(context, |res| {
-            create_response(res, InteractionResponseType::UpdateMessage, &user)
+            create_response(res, InteractionResponseType::UpdateMessage, user)
         })
         .await?;
 

@@ -377,7 +377,7 @@ async fn handle_interaction(
                                     InteractionResponseType::UpdateMessage,
                                     user,
                                     emote_list,
-                                    &selection,
+                                    selection,
                                     members,
                                 )
                             })
@@ -454,8 +454,8 @@ async fn handle_interaction(
                 InteractionResponseType::UpdateMessage,
                 user,
                 emote_list,
-                &selection,
-                &members,
+                selection,
+                members,
             )
         })
         .await?;

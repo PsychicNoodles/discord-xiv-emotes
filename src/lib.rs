@@ -140,10 +140,7 @@ pub enum HandlerError {
 
 impl HandlerError {
     fn should_followup(&self) -> bool {
-        match self {
-            HandlerError::TimeoutOrOverLimit => false,
-            _ => true,
-        }
+        !matches!(self, HandlerError::TimeoutOrOverLimit)
     }
 }
 

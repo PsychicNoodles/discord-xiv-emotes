@@ -190,7 +190,7 @@ async fn handle_interaction(
                                     res,
                                     InteractionResponseType::UpdateMessage,
                                     user,
-                                    &guild,
+                                    guild,
                                 )
                             })
                             .await?;
@@ -223,11 +223,11 @@ async fn handle_interaction(
 
     interaction
         .create_interaction_response(context, |res| {
-            create_response(res, InteractionResponseType::UpdateMessage, user, &guild)
+            create_response(res, InteractionResponseType::UpdateMessage, user, guild)
         })
         .await?;
 
-    return Ok(None);
+    Ok(None)
 }
 
 async fn handle_interactions(
