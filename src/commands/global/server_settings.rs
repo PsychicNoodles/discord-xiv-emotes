@@ -32,8 +32,8 @@ pub const PREFIX_INPUT_BTN: LocalizedString = LocalizedString {
     ja: "コマンドプレフィックスを入力、現在：",
 };
 pub const PREFIX_INPUT_MODAL_CONTENT: LocalizedString = LocalizedString {
-    en: "Input a command prefix",
-    ja: "コマンドプレフィックスを入力してください",
+    en: "Input a command prefix (up to 5 characters)",
+    ja: "コマンドプレフィックスを入力してください（5文字まで）",
 };
 pub const SAVE_BTN: LocalizedString = LocalizedString {
     en: "Save",
@@ -168,6 +168,7 @@ async fn handle_interactions(
                                                 inp.custom_id(PREFIX_INPUT_MODAL)
                                                     .style(InputTextStyle::Short)
                                                     .label("Target name")
+                                                    .max_length(5)
                                             })
                                         })
                                     })
