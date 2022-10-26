@@ -334,7 +334,7 @@ impl AppCmd for ServerSettingsCmd {
     {
         trace!("finding existing guild");
         let user = message_db_data.determine_user_settings().await?;
-        let guild = message_db_data.guild().await?.clone().unwrap_or_default();
+        let guild = message_db_data.guild().await?.unwrap_or_default();
 
         cmd.create_interaction_response(context, |res| {
             create_response(
@@ -347,7 +347,7 @@ impl AppCmd for ServerSettingsCmd {
         .await?;
         let msg = cmd.get_interaction_response(context).await?;
         trace!("awaiting interactions");
-        let guild = handle_interactions(context, &msg, &user, guild).await?;
+        let guild = handle_interactions(context, &msg, &user, guild.into_owned()).await?;
 
         handler
             .db

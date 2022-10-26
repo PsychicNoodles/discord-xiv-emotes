@@ -129,7 +129,7 @@ impl AppCmd for EmoteCmd {
         trace!("target is {:?}", target);
 
         let user_settings = message_db_data.determine_user_settings().await?;
-        let guild = message_db_data.guild().await?.clone().unwrap_or_default();
+        let guild = message_db_data.guild().await?.unwrap_or_default();
 
         let emote = match emote.get(0..0) {
             None => {

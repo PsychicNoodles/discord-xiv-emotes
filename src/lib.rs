@@ -67,20 +67,24 @@ impl<'a> MessageDbData<'a> {
     }
 
     #[instrument]
-    pub async fn user(&self) -> Result<&Option<DbUser>, HandlerError> {
+    pub async fn user(&self) -> Result<Option<Cow<DbUser>>, HandlerError> {
         Ok(self
             .user_cell
             .get_or_try_init(|| async { self.db.find_user(&self.user_discord_id).await })
-            .await?)
+            .await?
+            .as_ref()
+            .map(Cow::Borrowed))
     }
 
     #[instrument]
-    pub async fn guild(&self) -> Result<&Option<DbGuild>, HandlerError> {
+    pub async fn guild(&self) -> Result<Option<Cow<DbGuild>>, HandlerError> {
         if let Some(discord_id) = &self.guild_discord_id {
             Ok(self
                 .guild_cell
                 .get_or_try_init(|| async { self.db.find_guild(discord_id).await })
-                .await?)
+                .await?
+                .as_ref()
+                .map(Cow::Borrowed))
         } else {
             Err(HandlerError::NotGuild)
         }
@@ -89,12 +93,12 @@ impl<'a> MessageDbData<'a> {
     #[instrument]
     pub async fn determine_user_settings(&self) -> Result<Cow<DbUser>, HandlerError> {
         if let Some(user) = self.user().await? {
-            return Ok(Cow::Borrowed(user));
+            return Ok(user);
         }
         if let Some(guild) = self.guild().await? {
             return Ok(Cow::Owned(DbUser {
                 discord_id: self.user_discord_id.clone(),
-                ..DbUser::from(guild)
+                ..DbUser::from(guild.as_ref())
             }));
         }
         Ok(Cow::Owned(DbUser::default()))
@@ -161,8 +165,6 @@ impl EventHandler for Handler {
             }
         }
 
-        trace!("incoming message: {:?}", msg);
-
         if msg.is_own(&context) {
             return;
         }
@@ -173,18 +175,18 @@ impl EventHandler for Handler {
             msg.guild_id.as_ref().map(ToString::to_string),
         );
 
-        let prefix = match message_db_data.guild().await {
-            Ok(guild) => guild.clone().unwrap_or_default().prefix,
+        let guild = match message_db_data.guild().await {
+            Ok(guild) => guild.unwrap_or_default(),
             Err(e) => {
                 error!("error communicating with db: {:?}", e);
                 handle_error(e, msg, &context).await;
                 return;
             }
         };
-        if msg.content.starts_with(&prefix) {
+        if msg.content.starts_with(&guild.prefix) {
             let mut mparts: Vec<_> = msg.content.split_whitespace().collect();
             if let Some(first) = mparts.get_mut(0) {
-                *first = first.strip_prefix(&prefix).unwrap_or(first);
+                *first = first.strip_prefix(&guild.prefix).unwrap_or(first);
             }
             debug!("message parts: {:?}", mparts);
             match self
@@ -202,8 +204,6 @@ impl EventHandler for Handler {
     #[instrument(skip(self, context))]
     async fn interaction_create(&self, context: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(cmd) = interaction {
-            trace!("incoming application command: {:?}", cmd);
-
             let message_db_data = MessageDbData::new(
                 &self.db,
                 cmd.user.id.to_string(),
@@ -252,6 +252,7 @@ impl EventHandler for Handler {
         .await
         {
             error!("error registering global application commands: {:?}", err);
+            context.shard.shutdown_clean();
         }
 
         if let Err(err) = try_join_all(ready.guilds.iter().map(|g| {
@@ -263,6 +264,7 @@ impl EventHandler for Handler {
         .await
         {
             error!("error registering guild application commands: {:?}", err);
+            context.shard.shutdown_clean();
         }
     }
 }
