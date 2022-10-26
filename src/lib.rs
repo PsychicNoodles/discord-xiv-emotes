@@ -122,7 +122,7 @@ pub enum HandlerError {
     Db(#[from] db::DbError),
     #[error("Failed to send message")]
     Send(#[from] serenity::Error),
-    #[error("Expected to be in a guild channel")]
+    #[error("Command can only be used in a server")]
     NotGuild,
     #[error("Timed out or had too many inputs")]
     TimeoutOrOverLimit,
@@ -130,35 +130,35 @@ pub enum HandlerError {
     UserNotFound,
     #[error("Unexpected data received from server")]
     UnexpectedData,
-    #[error("Internal error")]
-    TypeMapNotFound,
     #[error("Maximum number of commands reached")]
     ApplicationCommandCap,
 }
 
-// async fn determine_mention(msg: &Message, context: &Context) -> Option<Target> {
-//     if let Some(user) = msg.mentions.first() {
-//         trace!("mention appears to be a user");
-//         Some(Target::User(user.clone()))
-//     } else if let Some(role_id) = msg.mention_roles.first() {
-//         trace!("mention appears to be a role");
-//         msg.guild(context.cache.clone())?
-//             .roles
-//             .get(role_id)
-//             .cloned()
-//             .map(Target::Role)
-//     } else if msg.mention_everyone {
-//         trace!("mention appears to be everyone");
-//         Some(Target::Plain("everyone in the vicinity".to_string()))
-//     } else {
-//         trace!("no mention found");
-//         None
-//     }
-// }
+impl HandlerError {
+    fn should_followup(&self) -> bool {
+        match self {
+            HandlerError::TimeoutOrOverLimit => false,
+            _ => true,
+        }
+    }
+}
 
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
+        async fn handle_error(err: HandlerError, msg: Message, context: &Context) {
+            error!("error during message processing: {:?}", err);
+            if err.should_followup() {
+                if let Err(e) = msg.reply(context, err.to_string()).await {
+                    error!(
+                        "could not send follow-up message ({}): {:?}",
+                        err.to_string(),
+                        e
+                    );
+                }
+            }
+        }
+
         trace!("incoming message: {:?}", msg);
 
         if msg.is_own(&context) {
@@ -175,7 +175,7 @@ impl EventHandler for Handler {
             Ok(guild) => guild.clone().unwrap_or_default().prefix,
             Err(e) => {
                 error!("error communicating with db: {:?}", e);
-                Self::handle_error(e, msg, &context).await;
+                handle_error(e, msg, &context).await;
                 return;
             }
         };
@@ -191,7 +191,7 @@ impl EventHandler for Handler {
             {
                 Ok(v) => v,
                 Err(err) => {
-                    Self::handle_error(err, msg, &context).await;
+                    handle_error(err, msg, &context).await;
                 }
             }
         }
@@ -215,17 +215,19 @@ impl EventHandler for Handler {
                 .await
             {
                 error!("error during interaction processing: {:?}", err);
-                if let Err(e) = cmd
-                    .create_followup_message(&context, |msg| {
-                        msg.ephemeral(true).content(err.to_string())
-                    })
-                    .await
-                {
-                    error!(
-                        "could not send follow-up message ({}): {:?}",
-                        err.to_string(),
-                        e
-                    );
+                if err.should_followup() {
+                    if let Err(e) = cmd
+                        .create_followup_message(&context, |msg| {
+                            msg.ephemeral(true).content(err.to_string())
+                        })
+                        .await
+                    {
+                        error!(
+                            "could not send follow-up message ({}): {:?}",
+                            err.to_string(),
+                            e
+                        );
+                    }
                 }
             };
         }
@@ -262,17 +264,6 @@ impl EventHandler for Handler {
 }
 
 impl Handler {
-    async fn handle_error(err: HandlerError, msg: Message, context: &Context) {
-        error!("error during message processing: {:?}", err);
-        if let Err(e) = msg.reply(context, err.to_string()).await {
-            error!(
-                "could not send follow-up message ({}): {:?}",
-                err.to_string(),
-                e
-            );
-        }
-    }
-
     pub async fn build_emote_message<'a>(
         &self,
         emote: &str,
