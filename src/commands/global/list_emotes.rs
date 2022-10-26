@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub const NAME: LocalizedString = LocalizedString {
-    en: "emotes",
+    en: "list-emotes",
     ja: "エモート一覧",
 };
 pub const DESC: LocalizedString = LocalizedString {
