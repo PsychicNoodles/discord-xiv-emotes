@@ -27,7 +27,7 @@ futures = "0.3"
 # shuttle-secrets = "0.7"
 # shuttle-service = { version = "0.7", features = ["bot-serenity"] }
 # shuttle-shared-db = { version = "0.7", features = ["postgres"] }
-sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "postgres", "time"] }
+sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "postgres", "time", "offline"] }
 time = "0.3"
 strum = "0.24"
 strum_macros = "0.24"
