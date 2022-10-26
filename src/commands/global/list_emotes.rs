@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use log::*;
 use serenity::{
     builder::CreateApplicationCommand,
     constants::MESSAGE_CODE_LIMIT,
@@ -8,6 +7,7 @@ use serenity::{
     },
     prelude::Context,
 };
+use tracing::*;
 
 use crate::{
     commands::AppCmd,
@@ -76,6 +76,7 @@ impl AppCmd for ListEmotesCmd {
         cmd
     }
 
+    #[instrument(skip(handler, context))]
     async fn handle(
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,

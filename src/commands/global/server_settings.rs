@@ -1,13 +1,15 @@
+use std::{mem, sync::Arc};
+
 use async_trait::async_trait;
 use futures::StreamExt;
-use log::*;
 use serenity::{
     builder::{CreateApplicationCommand, CreateInteractionResponse},
     model::prelude::{
         command::CommandType,
         component::{ActionRowComponent, InputTextStyle},
         interaction::{
-            application_command::ApplicationCommandInteraction, InteractionResponseType,
+            application_command::ApplicationCommandInteraction,
+            message_component::MessageComponentInteraction, InteractionResponseType,
         },
         Message,
     },
@@ -15,6 +17,7 @@ use serenity::{
 };
 use strum::IntoEnumIterator;
 use thiserror::Error;
+use tracing::*;
 
 use crate::{
     commands::AppCmd,
@@ -103,6 +106,130 @@ impl TryFrom<&str> for Ids {
     }
 }
 
+#[instrument(skip(context))]
+async fn handle_interaction(
+    context: &Context,
+    msg: &Message,
+    user: &DbUser,
+    interaction: Arc<MessageComponentInteraction>,
+    guild: &mut DbGuild,
+) -> Result<Option<DbGuild>, HandlerError> {
+    trace!("incoming interactions: {:?}", interaction);
+    match Ids::try_from(interaction.data.custom_id.as_str()) {
+        Ok(Ids::GenderSelect) => {
+            let value = &interaction.data.values[0];
+            let value = if let Ok(v) = value.parse() {
+                v
+            } else {
+                error!("unexpected gender selected (not numeric): {}", value);
+                return Err(HandlerError::UnexpectedData);
+            };
+            let gender = match DbGender::from_repr(value) {
+                Some(g) => g,
+                None => {
+                    error!("unexpected gender selected (invalid number): {}", value);
+                    return Err(HandlerError::UnexpectedData);
+                }
+            };
+            debug!("gender selected: {:?}", gender);
+            guild.gender = gender;
+        }
+        Ok(Ids::LanguageSelect) => {
+            let value = &interaction.data.values[0];
+            let value = if let Ok(v) = value.parse() {
+                v
+            } else {
+                error!("unexpected language selected (not numeric): {}", value);
+                return Err(HandlerError::UnexpectedData);
+            };
+            let lang = match DbLanguage::from_repr(value) {
+                Some(g) => g,
+                None => {
+                    error!("unexpected language selected (invalid number): {}", value);
+                    return Err(HandlerError::UnexpectedData);
+                }
+            };
+            debug!("language selected: {:?}", lang);
+            guild.language = lang;
+        }
+        Ok(Ids::PrefixInputBtn) => {
+            debug!("prefix input");
+            interaction
+                .create_interaction_response(context, |res| {
+                    res.kind(InteractionResponseType::Modal)
+                        .interaction_response_data(|d| {
+                            d.content(PREFIX_INPUT_MODAL_CONTENT.for_user(user))
+                                .components(|c| {
+                                    c.create_action_row(|row| {
+                                        row.create_input_text(|inp| {
+                                            inp.custom_id(PREFIX_INPUT_MODAL)
+                                                .style(InputTextStyle::Short)
+                                                .label("Target name")
+                                                .max_length(5)
+                                        })
+                                    })
+                                })
+                                .title("Custom target input")
+                                .custom_id(PREFIX_INPUT_MODAL_BTN)
+                        })
+                })
+                .await?;
+
+            if let Some(modal_interaction) = msg
+                .await_modal_interaction(context)
+                .timeout(INTERACTION_TIMEOUT)
+                .await
+            {
+                match &modal_interaction.data.components[0].components[0] {
+                    ActionRowComponent::InputText(cmp) => {
+                        trace!("setting prefix to: {}", cmp.value);
+                        guild.prefix = cmp.value.clone();
+                        modal_interaction
+                            .create_interaction_response(context, |res| {
+                                create_response(
+                                    res,
+                                    InteractionResponseType::UpdateMessage,
+                                    user,
+                                    &guild,
+                                )
+                            })
+                            .await?;
+                    }
+                    cmp => {
+                        error!("modal component was not an input text: {:?}", cmp);
+                        return Err(HandlerError::UnexpectedData);
+                    }
+                }
+            }
+            // don't send typical interaction response
+            return Ok(None);
+        }
+        Ok(Ids::Submit) => {
+            interaction
+                .create_interaction_response(context, |res| {
+                    res.kind(InteractionResponseType::UpdateMessage)
+                        .interaction_response_data(|d| {
+                            d.content(SETTINGS_SAVED.for_user(user))
+                                .components(|cmp| cmp)
+                        })
+                })
+                .await?;
+            return Ok(Some(mem::take(guild)));
+        }
+        Err(e) => {
+            error!("unexpected component id: {}", e);
+        }
+    }
+
+    interaction
+        .create_interaction_response(context, |res| {
+            create_response(res, InteractionResponseType::UpdateMessage, user, &guild)
+        })
+        .await?;
+
+    return Ok(None);
+}
+
 async fn handle_interactions(
     context: &Context,
     msg: &Message,
@@ -117,122 +244,16 @@ async fn handle_interactions(
         .next()
         .await
     {
-        trace!("incoming interactions: {:?}", interaction);
-        match Ids::try_from(interaction.data.custom_id.as_str()) {
-            Ok(Ids::GenderSelect) => {
-                let value = &interaction.data.values[0];
-                let value = if let Ok(v) = value.parse() {
-                    v
-                } else {
-                    error!("unexpected gender selected (not numeric): {}", value);
-                    return Err(HandlerError::UnexpectedData);
-                };
-                let gender = match DbGender::from_repr(value) {
-                    Some(g) => g,
-                    None => {
-                        error!("unexpected gender selected (invalid number): {}", value);
-                        return Err(HandlerError::UnexpectedData);
-                    }
-                };
-                debug!("gender selected: {:?}", gender);
-                db_guild.gender = gender;
-            }
-            Ok(Ids::LanguageSelect) => {
-                let value = &interaction.data.values[0];
-                let value = if let Ok(v) = value.parse() {
-                    v
-                } else {
-                    error!("unexpected language selected (not numeric): {}", value);
-                    return Err(HandlerError::UnexpectedData);
-                };
-                let lang = match DbLanguage::from_repr(value) {
-                    Some(g) => g,
-                    None => {
-                        error!("unexpected language selected (invalid number): {}", value);
-                        return Err(HandlerError::UnexpectedData);
-                    }
-                };
-                debug!("language selected: {:?}", lang);
-                db_guild.language = lang;
-            }
-            Ok(Ids::PrefixInputBtn) => {
-                debug!("prefix input");
-                interaction
-                    .create_interaction_response(context, |res| {
-                        res.kind(InteractionResponseType::Modal)
-                            .interaction_response_data(|d| {
-                                d.content(PREFIX_INPUT_MODAL_CONTENT.for_user(user))
-                                    .components(|c| {
-                                        c.create_action_row(|row| {
-                                            row.create_input_text(|inp| {
-                                                inp.custom_id(PREFIX_INPUT_MODAL)
-                                                    .style(InputTextStyle::Short)
-                                                    .label("Target name")
-                                                    .max_length(5)
-                                            })
-                                        })
-                                    })
-                                    .title("Custom target input")
-                                    .custom_id(PREFIX_INPUT_MODAL_BTN)
-                            })
-                    })
-                    .await?;
-
-                if let Some(modal_interaction) = msg
-                    .await_modal_interaction(context)
-                    .timeout(INTERACTION_TIMEOUT)
-                    .await
-                {
-                    match &modal_interaction.data.components[0].components[0] {
-                        ActionRowComponent::InputText(cmp) => {
-                            trace!("setting prefix to: {}", cmp.value);
-                            db_guild.prefix = cmp.value.clone();
-                            modal_interaction
-                                .create_interaction_response(context, |res| {
-                                    create_response(
-                                        res,
-                                        InteractionResponseType::UpdateMessage,
-                                        user,
-                                        &db_guild,
-                                    )
-                                })
-                                .await?;
-                        }
-                        cmp => {
-                            error!("modal component was not an input text: {:?}", cmp);
-                            return Err(HandlerError::UnexpectedData);
-                        }
-                    }
-                }
-                // don't send typical interaction response
-                continue;
-            }
-            Ok(Ids::Submit) => {
-                interaction
-                    .create_interaction_response(context, |res| {
-                        res.kind(InteractionResponseType::UpdateMessage)
-                            .interaction_response_data(|d| {
-                                d.content(SETTINGS_SAVED.for_user(user))
-                                    .components(|cmp| cmp)
-                            })
-                    })
-                    .await?;
-                return Ok(db_guild);
-            }
-            Err(e) => {
-                error!("unexpected component id: {}", e);
-            }
+        if let Some(res) =
+            handle_interaction(context, msg, user, interaction, &mut db_guild).await?
+        {
+            return Ok(res);
         }
-
-        interaction
-            .create_interaction_response(context, |res| {
-                create_response(res, InteractionResponseType::UpdateMessage, user, &db_guild)
-            })
-            .await?;
     }
     Err(HandlerError::TimeoutOrOverLimit)
 }
 
+#[instrument(skip(res))]
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
     kind: InteractionResponseType,
@@ -301,6 +322,7 @@ impl AppCmd for ServerSettingsCmd {
         cmd
     }
 
+    #[instrument(skip(handler, context))]
     async fn handle(
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,

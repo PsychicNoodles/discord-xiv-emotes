@@ -2,7 +2,6 @@ use std::borrow::Cow;
 
 use async_trait::async_trait;
 use const_format::concatcp;
-use log::*;
 use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::{
@@ -11,6 +10,7 @@ use serenity::{
     },
     prelude::{Context, Mentionable},
 };
+use tracing::*;
 
 use crate::{
     commands::AppCmd,
@@ -59,6 +59,7 @@ pub const EMOTE_SENT: LocalizedString = LocalizedString {
     ja: "送信しました！",
 };
 
+#[instrument(skip(context))]
 fn resolve_mention(data: &CommandData, context: &Context) -> Option<String> {
     if let Some(user) = data.resolved.users.values().next() {
         debug!("resolved to user");
@@ -107,6 +108,7 @@ impl AppCmd for EmoteCmd {
         cmd
     }
 
+    #[instrument(skip(handler, context))]
     async fn handle(
         cmd: &ApplicationCommandInteraction,
         handler: &Handler,

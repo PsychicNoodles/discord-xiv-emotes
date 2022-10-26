@@ -2,13 +2,14 @@ use std::env;
 
 use discord_xiv_emotes::setup_client;
 use dotenvy::dotenv;
-use log::info;
 use sqlx::PgPool;
+use tracing::*;
 
 #[tokio::main]
+#[instrument]
 async fn main() {
     dotenv().ok();
-    pretty_env_logger::init();
+    tracing_subscriber::fmt::init();
     let token = env::var("DISCORD_TOKEN").expect("expected DISCORD_TOKEN env var");
     let db_url = env::var("DATABASE_URL").expect("expected DATABASE_URL env var");
     let pool = PgPool::connect(&db_url)

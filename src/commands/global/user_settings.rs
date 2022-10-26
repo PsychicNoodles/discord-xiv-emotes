@@ -1,12 +1,14 @@
+use std::{mem, sync::Arc};
+
 use async_trait::async_trait;
 use futures::StreamExt;
-use log::*;
 use serenity::{
     builder::{CreateApplicationCommand, CreateInteractionResponse},
     model::prelude::{
         command::CommandType,
         interaction::{
-            application_command::ApplicationCommandInteraction, InteractionResponseType,
+            application_command::ApplicationCommandInteraction,
+            message_component::MessageComponentInteraction, InteractionResponseType,
         },
         Message,
     },
@@ -14,6 +16,7 @@ use serenity::{
 };
 use strum::IntoEnumIterator;
 use thiserror::Error;
+use tracing::*;
 
 use crate::{
     commands::AppCmd,
@@ -88,6 +91,77 @@ impl TryFrom<&str> for Ids {
     }
 }
 
+#[instrument(skip(context))]
+async fn handle_interaction(
+    context: &Context,
+    msg: &Message,
+    interaction: Arc<MessageComponentInteraction>,
+    user: &mut DbUser,
+) -> Result<Option<DbUser>, HandlerError> {
+    trace!("incoming interactions: {:?}", interaction);
+    match Ids::try_from(interaction.data.custom_id.as_str()) {
+        Ok(Ids::GenderSelect) => {
+            let value = &interaction.data.values[0];
+            let value = if let Ok(v) = value.parse() {
+                v
+            } else {
+                error!("unexpected gender selected (not numeric): {}", value);
+                return Err(HandlerError::UnexpectedData);
+            };
+            let gender = match DbGender::from_repr(value) {
+                Some(g) => g,
+                None => {
+                    error!("unexpected gender selected (invalid number): {}", value);
+                    return Err(HandlerError::UnexpectedData);
+                }
+            };
+            debug!("gender selected: {:?}", gender);
+            user.gender = gender;
+        }
+        Ok(Ids::LanguageSelect) => {
+            let value = &interaction.data.values[0];
+            let value = if let Ok(v) = value.parse() {
+                v
+            } else {
+                error!("unexpected language selected (not numeric): {}", value);
+                return Err(HandlerError::UnexpectedData);
+            };
+            let lang = match DbLanguage::from_repr(value) {
+                Some(g) => g,
+                None => {
+                    error!("unexpected language selected (invalid number): {}", value);
+                    return Err(HandlerError::UnexpectedData);
+                }
+            };
+            debug!("language selected: {:?}", lang);
+            user.language = lang;
+        }
+        Ok(Ids::Submit) => {
+            interaction
+                .create_interaction_response(context, |res| {
+                    res.kind(InteractionResponseType::UpdateMessage)
+                        .interaction_response_data(|d| {
+                            d.content(SETTINGS_SAVED.for_user(&user))
+                                .components(|cmp| cmp)
+                        })
+                })
+                .await?;
+            return Ok(Some(mem::take(user)));
+        }
+        Err(e) => {
+            error!("unexpected component id: {}", e);
+        }
+    }
+
+    interaction
+        .create_interaction_response(context, |res| {
+            create_response(res, InteractionResponseType::UpdateMessage, &user)
+        })
+        .await?;
+
+    Ok(None)
+}
+
 async fn handle_interactions(
     context: &Context,
     msg: &Message,
@@ -101,70 +175,14 @@ async fn handle_interactions(
         .next()
         .await
     {
-        trace!("incoming interactions: {:?}", interaction);
-        match Ids::try_from(interaction.data.custom_id.as_str()) {
-            Ok(Ids::GenderSelect) => {
-                let value = &interaction.data.values[0];
-                let value = if let Ok(v) = value.parse() {
-                    v
-                } else {
-                    error!("unexpected gender selected (not numeric): {}", value);
-                    return Err(HandlerError::UnexpectedData);
-                };
-                let gender = match DbGender::from_repr(value) {
-                    Some(g) => g,
-                    None => {
-                        error!("unexpected gender selected (invalid number): {}", value);
-                        return Err(HandlerError::UnexpectedData);
-                    }
-                };
-                debug!("gender selected: {:?}", gender);
-                user.gender = gender;
-            }
-            Ok(Ids::LanguageSelect) => {
-                let value = &interaction.data.values[0];
-                let value = if let Ok(v) = value.parse() {
-                    v
-                } else {
-                    error!("unexpected language selected (not numeric): {}", value);
-                    return Err(HandlerError::UnexpectedData);
-                };
-                let lang = match DbLanguage::from_repr(value) {
-                    Some(g) => g,
-                    None => {
-                        error!("unexpected language selected (invalid number): {}", value);
-                        return Err(HandlerError::UnexpectedData);
-                    }
-                };
-                debug!("language selected: {:?}", lang);
-                user.language = lang;
-            }
-            Ok(Ids::Submit) => {
-                interaction
-                    .create_interaction_response(context, |res| {
-                        res.kind(InteractionResponseType::UpdateMessage)
-                            .interaction_response_data(|d| {
-                                d.content(SETTINGS_SAVED.for_user(&user))
-                                    .components(|cmp| cmp)
-                            })
-                    })
-                    .await?;
-                return Ok(user);
-            }
-            Err(e) => {
-                error!("unexpected component id: {}", e);
-            }
+        if let Some(res) = handle_interaction(context, msg, interaction, &mut user).await? {
+            return Ok(res);
         }
-
-        interaction
-            .create_interaction_response(context, |res| {
-                create_response(res, InteractionResponseType::UpdateMessage, &user)
-            })
-            .await?;
     }
     Err(HandlerError::TimeoutOrOverLimit)
 }
 
+#[instrument(skip(res))]
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
     kind: InteractionResponseType,
@@ -227,6 +245,7 @@ impl AppCmd for UserSettingsCmd {
         cmd
     }
 
+    #[instrument(skip(handler, context))]
     async fn handle(
         cmd: &ApplicationCommandInteraction,
         handler: &crate::Handler,

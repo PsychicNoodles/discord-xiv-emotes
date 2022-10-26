@@ -8,11 +8,11 @@ use db::{
     Db,
 };
 use futures::future::{try_join_all, TryFutureExt};
-use log::*;
 use sqlx::PgPool;
 use std::{borrow::Cow, time::Duration};
 use thiserror::Error;
 use tokio::sync::OnceCell;
+use tracing::*;
 
 use serenity::{
     async_trait,
@@ -42,6 +42,7 @@ pub struct Handler {
     db: Db,
 }
 
+#[derive(Debug, Clone)]
 pub struct MessageDbData<'a> {
     db: &'a Db,
     user_discord_id: String,
@@ -65,6 +66,7 @@ impl<'a> MessageDbData<'a> {
         }
     }
 
+    #[instrument]
     pub async fn user(&self) -> Result<&Option<DbUser>, HandlerError> {
         Ok(self
             .user_cell
@@ -72,6 +74,7 @@ impl<'a> MessageDbData<'a> {
             .await?)
     }
 
+    #[instrument]
     pub async fn guild(&self) -> Result<&Option<DbGuild>, HandlerError> {
         if let Some(discord_id) = &self.guild_discord_id {
             Ok(self
@@ -83,6 +86,7 @@ impl<'a> MessageDbData<'a> {
         }
     }
 
+    #[instrument]
     pub async fn determine_user_settings(&self) -> Result<Cow<DbUser>, HandlerError> {
         if let Some(user) = self.user().await? {
             return Ok(Cow::Borrowed(user));
@@ -145,6 +149,7 @@ impl HandlerError {
 
 #[async_trait]
 impl EventHandler for Handler {
+    #[instrument(skip(self, context))]
     async fn message(&self, context: Context, msg: Message) {
         async fn handle_error(err: HandlerError, msg: Message, context: &Context) {
             error!("error during message processing: {:?}", err);
@@ -197,6 +202,7 @@ impl EventHandler for Handler {
         }
     }
 
+    #[instrument(skip(self, context))]
     async fn interaction_create(&self, context: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(cmd) = interaction {
             trace!("incoming application command: {:?}", cmd);
@@ -233,6 +239,7 @@ impl EventHandler for Handler {
         }
     }
 
+    #[instrument(skip(self, context))]
     async fn ready(&self, context: Context, ready: Ready) {
         info!("{} is connected", ready.user.name);
 
@@ -264,11 +271,12 @@ impl EventHandler for Handler {
 }
 
 impl Handler {
+    #[instrument(skip(self))]
     pub async fn build_emote_message<'a>(
         &self,
         emote: &str,
         message_db_data: &MessageDbData<'a>,
-        author_mention: &impl Mentionable,
+        author_mention: &(impl Mentionable + std::fmt::Debug),
         target: Option<&str>,
     ) -> Result<String, HandlerError> {
         let mut msg_builder = MessageBuilder::new();
@@ -325,6 +333,7 @@ impl Handler {
         Ok(msg_builder.build())
     }
 
+    #[instrument(skip(self, context))]
     async fn process_input<'a>(
         &self,
         context: &Context,
@@ -360,6 +369,7 @@ impl Handler {
         }
     }
 
+    #[instrument(skip(self, context))]
     async fn try_handle_commands<'a, T>(
         &self,
         context: &Context,

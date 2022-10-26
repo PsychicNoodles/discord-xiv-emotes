@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use futures::stream::StreamExt;
-use log::*;
 use serenity::{
     builder::{CreateApplicationCommand, CreateInteractionResponse},
     model::{
@@ -10,7 +11,8 @@ use serenity::{
             command::CommandType,
             component::{ActionRowComponent, InputTextStyle},
             interaction::{
-                application_command::ApplicationCommandInteraction, InteractionResponseType,
+                application_command::ApplicationCommandInteraction,
+                message_component::MessageComponentInteraction, InteractionResponseType,
             },
             Message,
         },
@@ -19,6 +21,7 @@ use serenity::{
     prelude::{Context, Mentionable},
 };
 use thiserror::Error;
+use tracing::*;
 
 use crate::{
     commands::AppCmd,
@@ -213,13 +216,14 @@ struct Selection {
     selected_target_value: Option<Target>,
 }
 
+#[instrument(skip(res))]
 fn create_response<'a, 'b>(
     res: &'a mut CreateInteractionResponse<'b>,
     kind: InteractionResponseType,
     user: &DbUser,
-    emote_list: &Vec<&String>,
+    emote_list: &[impl AsRef<str> + std::fmt::Debug],
     selection: &Selection,
-    members: &Vec<UserInfo>,
+    members: &[UserInfo],
 ) -> &'a mut CreateInteractionResponse<'b> {
     res.kind(kind).interaction_response_data(|d| {
         d.ephemeral(true)
@@ -239,12 +243,13 @@ fn create_response<'a, 'b>(
                                     .skip(selection.emote_list_offset.unwrap_or(0))
                                     .take(EMOTE_LIST_OFFSET_STEP)
                                 {
+                                    let emote = emote.as_ref();
                                     opts.create_option(|o| {
                                         o.label(emote).value(emote).default_selection(
                                             selection
                                                 .selected_emote_value
                                                 .as_ref()
-                                                .map(|v| v == emote.as_str())
+                                                .map(|v| v == emote)
                                                 .unwrap_or(false),
                                         )
                                     });
@@ -322,11 +327,147 @@ fn create_response<'a, 'b>(
     })
 }
 
+#[instrument(skip(context))]
+async fn handle_interaction(
+    context: &Context,
+    msg: &Message,
+    user: &DbUser,
+    emote_list: &[impl AsRef<str> + std::fmt::Debug],
+    members: &[UserInfo],
+    interaction: Arc<MessageComponentInteraction>,
+    selection: &mut Selection,
+) -> Result<Option<InteractionResult>, HandlerError> {
+    trace!("incoming interaction: {:?}", interaction);
+    match Ids::try_from(interaction.data.custom_id.as_str()) {
+        Ok(Ids::InputTargetBtn) => {
+            debug!("target input");
+            interaction
+                .create_interaction_response(context, |res| {
+                    res.kind(InteractionResponseType::Modal)
+                        .interaction_response_data(|d| {
+                            d.content("Input target name")
+                                .components(|c| {
+                                    c.create_action_row(|row| {
+                                        row.create_input_text(|inp| {
+                                            inp.custom_id(INPUT_TARGET_COMPONENT)
+                                                .style(InputTextStyle::Short)
+                                                .label("Target name")
+                                        })
+                                    })
+                                })
+                                .title("Custom target input")
+                                .custom_id(INPUT_TARGET_MODAL)
+                        })
+                })
+                .await?;
+
+            if let Some(modal_interaction) = msg
+                .await_modal_interaction(context)
+                .timeout(INTERACTION_TIMEOUT)
+                .await
+            {
+                match &modal_interaction.data.components[0].components[0] {
+                    ActionRowComponent::InputText(cmp) => {
+                        trace!("setting target to: {}", cmp.value);
+                        selection.selected_target_value = Some(Target::Plain(cmp.value.clone()));
+                        modal_interaction
+                            .create_interaction_response(context, |res| {
+                                create_response(
+                                    res,
+                                    InteractionResponseType::UpdateMessage,
+                                    user,
+                                    emote_list,
+                                    &selection,
+                                    members,
+                                )
+                            })
+                            .await?;
+                    }
+                    cmp => {
+                        error!("modal component was not an input text: {:?}", cmp);
+                        return Err(HandlerError::UnexpectedData);
+                    }
+                }
+            }
+            // don't send typical interaction response
+            return Ok(None);
+        }
+        Ok(Ids::EmoteSelect) => {
+            let em = interaction.data.values[0].clone();
+            debug!("emote selected: {}", em);
+            selection.selected_emote_value.replace(em);
+        }
+        Ok(Ids::EmotePrevBtn) => {
+            debug!("previous emote list page");
+            selection.emote_list_offset = match selection.emote_list_offset {
+                None => None,
+                Some(_o) if _o <= EMOTE_LIST_OFFSET_STEP => None,
+                Some(o) => Some(o - EMOTE_LIST_OFFSET_STEP),
+            };
+        }
+        Ok(Ids::EmoteNextBtn) => {
+            debug!("next emote list page");
+            selection.emote_list_offset = match selection.emote_list_offset {
+                None => Some(EMOTE_LIST_OFFSET_STEP),
+                Some(_o) if _o + EMOTE_LIST_OFFSET_STEP >= emote_list.len() => Some(_o),
+                Some(o) => Some(o + EMOTE_LIST_OFFSET_STEP),
+            };
+        }
+        Ok(Ids::TargetSelect) => {
+            let ta = interaction.data.values[0].clone();
+            debug!("target selected: {}", ta);
+            let user_id: UserId = match ta.parse::<u64>() {
+                Ok(id) => id,
+                Err(e) => {
+                    error!("stored user id was not a number: {:?}", e);
+                    return Err(HandlerError::UserNotFound);
+                }
+            }
+            .into();
+            selection.selected_target_value.replace(Target::User(
+                members
+                    .iter()
+                    .map(|member| member.id)
+                    .find(|user| *user == user_id)
+                    .ok_or(HandlerError::UserNotFound)?,
+            ));
+        }
+        Ok(Ids::Submit) => {
+            if let Some(emote) = selection.selected_emote_value.take() {
+                return Ok(Some(InteractionResult {
+                    emote,
+                    target: selection.selected_target_value.take(),
+                }));
+            } else {
+                debug!("tried submitting without all necessary selections");
+            }
+        }
+        Err(e) => {
+            error!("unexpected component id: {}", e);
+        }
+    }
+
+    interaction
+        .create_interaction_response(context, |res| {
+            create_response(
+                res,
+                InteractionResponseType::UpdateMessage,
+                user,
+                emote_list,
+                &selection,
+                &members,
+            )
+        })
+        .await?;
+
+    Ok(None)
+}
+
 async fn handle_interactions(
     context: &Context,
     msg: &Message,
     user: &DbUser,
-    emote_list: &Vec<&String>,
+    emote_list: &[impl AsRef<str> + std::fmt::Debug],
     members: Vec<UserInfo>,
 ) -> Result<InteractionResult, HandlerError> {
     let mut selection = Selection::default();
@@ -339,129 +480,19 @@ async fn handle_interactions(
         .next()
         .await
     {
-        trace!("incoming interaction: {:?}", interaction);
-        match Ids::try_from(interaction.data.custom_id.as_str()) {
-            Ok(Ids::InputTargetBtn) => {
-                debug!("target input");
-                interaction
-                    .create_interaction_response(context, |res| {
-                        res.kind(InteractionResponseType::Modal)
-                            .interaction_response_data(|d| {
-                                d.content("Input target name")
-                                    .components(|c| {
-                                        c.create_action_row(|row| {
-                                            row.create_input_text(|inp| {
-                                                inp.custom_id(INPUT_TARGET_COMPONENT)
-                                                    .style(InputTextStyle::Short)
-                                                    .label("Target name")
-                                            })
-                                        })
-                                    })
-                                    .title("Custom target input")
-                                    .custom_id(INPUT_TARGET_MODAL)
-                            })
-                    })
-                    .await?;
-
-                if let Some(modal_interaction) = msg
-                    .await_modal_interaction(context)
-                    .timeout(INTERACTION_TIMEOUT)
-                    .await
-                {
-                    match &modal_interaction.data.components[0].components[0] {
-                        ActionRowComponent::InputText(cmp) => {
-                            trace!("setting target to: {}", cmp.value);
-                            selection.selected_target_value =
-                                Some(Target::Plain(cmp.value.clone()));
-                            modal_interaction
-                                .create_interaction_response(context, |res| {
-                                    create_response(
-                                        res,
-                                        InteractionResponseType::UpdateMessage,
-                                        user,
-                                        emote_list,
-                                        &selection,
-                                        &members,
-                                    )
-                                })
-                                .await?;
-                        }
-                        cmp => {
-                            error!("modal component was not an input text: {:?}", cmp);
-                            return Err(HandlerError::UnexpectedData);
-                        }
-                    }
-                }
-                // don't send typical interaction response
-                continue;
-            }
-            Ok(Ids::EmoteSelect) => {
-                let em = interaction.data.values[0].clone();
-                debug!("emote selected: {}", em);
-                selection.selected_emote_value.replace(em);
-            }
-            Ok(Ids::EmotePrevBtn) => {
-                debug!("previous emote list page");
-                selection.emote_list_offset = match selection.emote_list_offset {
-                    None => None,
-                    Some(_o) if _o <= EMOTE_LIST_OFFSET_STEP => None,
-                    Some(o) => Some(o - EMOTE_LIST_OFFSET_STEP),
-                };
-            }
-            Ok(Ids::EmoteNextBtn) => {
-                debug!("next emote list page");
-                selection.emote_list_offset = match selection.emote_list_offset {
-                    None => Some(EMOTE_LIST_OFFSET_STEP),
-                    Some(_o) if _o + EMOTE_LIST_OFFSET_STEP >= emote_list.len() => Some(_o),
-                    Some(o) => Some(o + EMOTE_LIST_OFFSET_STEP),
-                };
-            }
-            Ok(Ids::TargetSelect) => {
-                let ta = interaction.data.values[0].clone();
-                debug!("target selected: {}", ta);
-                let user_id: UserId = match ta.parse::<u64>() {
-                    Ok(id) => id,
-                    Err(e) => {
-                        error!("stored user id was not a number: {:?}", e);
-                        return Err(HandlerError::UserNotFound);
-                    }
-                }
-                .into();
-                selection.selected_target_value.replace(Target::User(
-                    members
-                        .iter()
-                        .map(|member| member.id)
-                        .find(|user| *user == user_id)
-                        .ok_or(HandlerError::UserNotFound)?,
-                ));
-            }
-            Ok(Ids::Submit) => {
-                if let Some(em) = &selection.selected_emote_value {
-                    return Ok(InteractionResult {
-                        emote: em.clone(),
-                        target: selection.selected_target_value.clone(),
-                    });
-                } else {
-                    debug!("tried submitting without all necessary selections");
-                }
-            }
-            Err(e) => {
-                error!("unexpected component id: {}", e);
-            }
+        if let Some(res) = handle_interaction(
+            context,
+            msg,
+            user,
+            emote_list,
+            &members,
+            interaction,
+            &mut selection,
+        )
+        .await?
+        {
+            return Ok(res);
         }
-
-        interaction
-            .create_interaction_response(context, |res| {
-                create_response(
-                    res,
-                    InteractionResponseType::UpdateMessage,
-                    user,
-                    emote_list,
-                    &selection,
-                    &members,
-                )
-            })
-            .await?;
     }
     Err(HandlerError::TimeoutOrOverLimit)
 }
@@ -482,6 +513,7 @@ impl AppCmd for EmoteSelectCmd {
         cmd
     }
 
+    #[instrument(skip(handler, context))]
     async fn handle(
         cmd: &ApplicationCommandInteraction,
         handler: &crate::Handler,
@@ -517,7 +549,7 @@ impl AppCmd for EmoteSelectCmd {
                 res,
                 InteractionResponseType::ChannelMessageWithSource,
                 &user_settings,
-                &emote_list,
+                emote_list.as_slice(),
                 &Selection::default(),
                 &members,
             )
@@ -526,7 +558,14 @@ impl AppCmd for EmoteSelectCmd {
         let msg = cmd.get_interaction_response(context).await?;
 
         trace!("awaiting interactions");
-        let res = handle_interactions(context, &msg, &user_settings, &emote_list, members).await?;
+        let res = handle_interactions(
+            context,
+            &msg,
+            &user_settings,
+            emote_list.as_slice(),
+            members,
+        )
+        .await?;
 
         let body = handler
             .build_emote_message(

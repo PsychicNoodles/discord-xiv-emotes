@@ -1,8 +1,8 @@
 pub mod models;
 
-use log::*;
 use sqlx::PgPool;
 use thiserror::Error;
+use tracing::*;
 
 use self::models::{DbGender, DbGuild, DbLanguage, DbUser};
 
@@ -18,9 +18,10 @@ pub type Result<T> = std::result::Result<T, DbError>;
 pub struct Db(pub PgPool);
 
 impl Db {
+    #[instrument]
     pub async fn upsert_user(
         &self,
-        discord_id: impl AsRef<str>,
+        discord_id: impl AsRef<str> + std::fmt::Debug,
         language: DbLanguage,
         gender: DbGender,
     ) -> Result<()> {
@@ -48,7 +49,11 @@ impl Db {
         Ok(())
     }
 
-    pub async fn find_user(&self, discord_id: impl AsRef<str>) -> Result<Option<DbUser>> {
+    #[instrument]
+    pub async fn find_user(
+        &self,
+        discord_id: impl AsRef<str> + std::fmt::Debug,
+    ) -> Result<Option<DbUser>> {
         debug!("checking for user {:?}", discord_id.as_ref());
         let res = sqlx::query_as!(
             DbUser,
@@ -70,9 +75,10 @@ impl Db {
         Ok(res)
     }
 
+    #[instrument]
     pub async fn upsert_guild(
         &self,
-        discord_id: impl AsRef<str>,
+        discord_id: impl AsRef<str> + std::fmt::Debug,
         language: DbLanguage,
         gender: DbGender,
         prefix: String,
@@ -102,7 +108,11 @@ impl Db {
         Ok(())
     }
 
-    pub async fn find_guild(&self, discord_id: impl AsRef<str>) -> Result<Option<DbGuild>> {
+    #[instrument]
+    pub async fn find_guild(
+        &self,
+        discord_id: impl AsRef<str> + std::fmt::Debug,
+    ) -> Result<Option<DbGuild>> {
         debug!("checking for guild {:?}", discord_id.as_ref());
         let res = sqlx::query_as!(
             DbGuild,
