@@ -4,14 +4,17 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use serenity::{
     builder::{CreateApplicationCommand, CreateInteractionResponse},
-    model::prelude::{
-        command::CommandType,
-        component::{ActionRowComponent, InputTextStyle},
-        interaction::{
-            application_command::ApplicationCommandInteraction,
-            message_component::MessageComponentInteraction, InteractionResponseType,
+    model::{
+        prelude::{
+            command::CommandType,
+            component::{ActionRowComponent, InputTextStyle},
+            interaction::{
+                application_command::ApplicationCommandInteraction,
+                message_component::MessageComponentInteraction, InteractionResponseType,
+            },
+            Message,
         },
-        Message,
+        Permissions,
     },
     prelude::Context,
 };
@@ -317,7 +320,8 @@ impl AppCmd for ServerSettingsCmd {
         let mut cmd = CreateApplicationCommand::default();
         cmd.localized_name(NAME)
             .kind(CommandType::ChatInput)
-            .localized_desc(DESC);
+            .localized_desc(DESC)
+            .default_member_permissions(Permissions::MANAGE_CHANNELS);
         cmd
     }
 
