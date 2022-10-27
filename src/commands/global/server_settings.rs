@@ -335,6 +335,7 @@ impl AppCmd for ServerSettingsCmd {
         trace!("finding existing guild");
         let user = message_db_data.determine_user_settings().await?;
         let guild = message_db_data.guild().await?.unwrap_or_default();
+        let guild_id = cmd.guild_id.ok_or(HandlerError::NotGuild)?;
 
         cmd.create_interaction_response(context, |res| {
             create_response(
@@ -351,7 +352,12 @@ impl AppCmd for ServerSettingsCmd {
 
         handler
             .db
-            .upsert_guild(guild.discord_id, guild.language, guild.gender, guild.prefix)
+            .upsert_guild(
+                guild_id.to_string(),
+                guild.language,
+                guild.gender,
+                guild.prefix,
+            )
             .await?;
 
         Ok(())
