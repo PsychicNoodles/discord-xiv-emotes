@@ -1,50 +1,90 @@
 {
   "db": "PostgreSQL",
-  "5021f0f81bd1b7a15d7e5f02d108f4f230a8f73792932025e48bf4fade4e45cd": {
+  "1178340c2146fe16564a4aad62f7d291f3383c35fadd2cef52c8539963321098": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Varchar",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n                INSERT INTO emotes (xiv_id, command, insert_tm, update_tm)\n                VALUES ($1, $2, $3, $3)\n                ON CONFLICT (xiv_id) DO UPDATE SET update_tm = $3\n            "
+  },
+  "614a4fecf38855de04059820779fa5393e6ea8942d4930b687afea25564355bb": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Bpchar",
+          "Int4",
+          "Int4",
+          "Varchar",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO guilds (discord_id, language, gender, prefix, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, $4, true, $5, $5)\n            ON CONFLICT (discord_id) DO UPDATE\n            SET discord_id = $1, language = $2, gender = $3, prefix = $4, is_set_flg = true, update_tm = $5\n        "
+  },
+  "74845e20073eb6c5712543b02fc01f6f0de83620bfc6af53afae5b94e29c2f61": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Bpchar",
+          "Int4",
+          "Int4",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, true, $4, $4)\n            ON CONFLICT (discord_id) DO UPDATE\n            SET discord_id = $1, language = $2, gender = $3, is_set_flg = true, update_tm = $4\n        "
+  },
+  "77bf8d18d6ad3693202bd261f0e249ab09a427aa2208a6b24f319eec3a1643dd": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Int4",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO emote_logs (user_id, guild_id, emote_id, sent_at, insert_tm, update_tm)\n            VALUES ($1, $2, $3, $4, $4, $4)\n        "
+  },
+  "b295ea4c5b972a60425eceaed2c86d45c822831b6e89a1462b89864769c22674": {
     "describe": {
       "columns": [
         {
-          "name": "discord_id",
+          "name": "guild_id",
           "ordinal": 0,
-          "type_info": "Bpchar"
-        },
-        {
-          "name": "language: DbLanguage",
-          "ordinal": 1,
-          "type_info": "Int4"
-        },
-        {
-          "name": "gender: DbGender",
-          "ordinal": 2,
-          "type_info": "Int4"
-        },
-        {
-          "name": "insert_tm",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "update_tm",
-          "ordinal": 4,
-          "type_info": "Timestamptz"
+          "type_info": "Int8"
         }
       ],
       "nullable": [
-        false,
-        false,
-        false,
-        false,
         false
       ],
       "parameters": {
         "Left": [
-          "Bpchar"
+          "Bpchar",
+          "Int4",
+          "Int4",
+          "Varchar",
+          "Timestamptz"
         ]
       }
     },
-    "query": "\n            SELECT\n                discord_id,\n                language as \"language: DbLanguage\",\n                gender as \"gender: DbGender\",\n                insert_tm,\n                update_tm\n            FROM users\n            WHERE discord_id = $1\n            "
+    "query": "\n                INSERT INTO guilds (discord_id, language, gender, prefix, is_set_flg, insert_tm, update_tm)\n                VALUES ($1, $2, $3, $4, false, $5, $5)\n                ON CONFLICT (discord_id) DO UPDATE SET update_tm = $5\n                RETURNING guild_id\n            "
   },
-  "d24a479da7a5fec81bb1c6f9996a708638b05c5812aeba185d58b8a43d9d3040": {
+  "c1460d1af5bd0236b8a0324c7b1a19f2b209312c5f5efcb0cf577f19560344c0": {
     "describe": {
       "columns": [
         {
@@ -63,9 +103,9 @@
           "type_info": "Int4"
         },
         {
-          "name": "prefix",
+          "name": "is_set_flg",
           "ordinal": 3,
-          "type_info": "Varchar"
+          "type_info": "Bool"
         },
         {
           "name": "insert_tm",
@@ -92,12 +132,76 @@
         ]
       }
     },
-    "query": "\n            SELECT\n                discord_id,\n                language as \"language: DbLanguage\",\n                gender as \"gender: DbGender\",\n                prefix,\n                insert_tm,\n                update_tm\n            FROM guilds\n            WHERE discord_id = $1\n            "
+    "query": "\n            SELECT\n                discord_id,\n                language as \"language: DbLanguage\",\n                gender as \"gender: DbGender\",\n                is_set_flg,\n                insert_tm,\n                update_tm\n            FROM users\n            WHERE discord_id = $1\n            "
   },
-  "e4684c3a29bf72eda8b131afe154220bef2745c8a3dccfaf2b0350cfed86a023": {
+  "ebc7d6da0f5558decc278a96d6ad6f11bfc095fa9b2213f1978257a7ac298bf1": {
     "describe": {
-      "columns": [],
-      "nullable": [],
+      "columns": [
+        {
+          "name": "discord_id",
+          "ordinal": 0,
+          "type_info": "Bpchar"
+        },
+        {
+          "name": "language: DbLanguage",
+          "ordinal": 1,
+          "type_info": "Int4"
+        },
+        {
+          "name": "gender: DbGender",
+          "ordinal": 2,
+          "type_info": "Int4"
+        },
+        {
+          "name": "prefix",
+          "ordinal": 3,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "is_set_flg",
+          "ordinal": 4,
+          "type_info": "Bool"
+        },
+        {
+          "name": "insert_tm",
+          "ordinal": 5,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "update_tm",
+          "ordinal": 6,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Bpchar"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                discord_id,\n                language as \"language: DbLanguage\",\n                gender as \"gender: DbGender\",\n                prefix,\n                is_set_flg,\n                insert_tm,\n                update_tm\n            FROM guilds\n            WHERE discord_id = $1\n            "
+  },
+  "f58498a2f4f30a8fe08eab864ed77d2ca22a7486056bd226363c0ed295116f10": {
+    "describe": {
+      "columns": [
+        {
+          "name": "user_id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
       "parameters": {
         "Left": [
           "Bpchar",
@@ -107,22 +211,6 @@
         ]
       }
     },
-    "query": "\n            INSERT INTO users (discord_id, language, gender, insert_tm, update_tm)\n            VALUES ($1, $2, $3, $4, $4)\n            ON CONFLICT (discord_id) DO UPDATE\n            SET discord_id = $1, language = $2, gender = $3, update_tm = $4\n        "
-  },
-  "f074285e6893c9a7b00c07a92fff8a891e16946ddffb52d7586542bebb488d66": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Bpchar",
-          "Int4",
-          "Int4",
-          "Varchar",
-          "Timestamptz"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO guilds (discord_id, language, gender, prefix, insert_tm, update_tm)\n            VALUES ($1, $2, $3, $4, $5, $5)\n            ON CONFLICT (discord_id) DO UPDATE\n            SET discord_id = $1, language = $2, gender = $3, prefix = $4, update_tm = $5\n        "
+    "query": "\n            INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, false, $4, $4)\n            ON CONFLICT (discord_id) DO UPDATE SET update_tm = $4\n            RETURNING user_id\n        "
   }
 }
