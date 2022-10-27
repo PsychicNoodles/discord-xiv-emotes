@@ -86,7 +86,7 @@ impl<'a> MessageDbData<'a> {
                 .as_ref()
                 .map(Cow::Borrowed))
         } else {
-            Err(HandlerError::NotGuild)
+            Ok(None)
         }
     }
 
@@ -152,6 +152,7 @@ impl HandlerError {
 impl EventHandler for Handler {
     #[instrument(skip(self, context))]
     async fn message(&self, context: Context, msg: Message) {
+        #[instrument(skip(context))]
         async fn handle_error(err: HandlerError, msg: Message, context: &Context) {
             error!("error during message processing: {:?}", err);
             if err.should_followup() {
@@ -169,6 +170,8 @@ impl EventHandler for Handler {
             return;
         }
 
+        info!("handling message");
+
         let message_db_data = MessageDbData::new(
             &self.db,
             msg.author.id.to_string(),
@@ -177,12 +180,14 @@ impl EventHandler for Handler {
 
         let guild = match message_db_data.guild().await {
             Ok(guild) => guild.unwrap_or_default(),
+            Err(HandlerError::NotGuild) => Cow::Owned(DbGuild::default()),
             Err(e) => {
                 error!("error communicating with db: {:?}", e);
                 handle_error(e, msg, &context).await;
                 return;
             }
         };
+        debug!("guild prefix: {}", guild.prefix);
         if msg.content.starts_with(&guild.prefix) {
             let mut mparts: Vec<_> = msg.content.split_whitespace().collect();
             if let Some(first) = mparts.get_mut(0) {
@@ -307,18 +312,21 @@ impl Handler {
             &localized_messages.untargeted
         })?;
 
-        let answers = LogMessageAnswers::new(
-            Character::new_from_string(
-                author_mention.mention().to_string(),
-                gender.into(),
-                true,
-                false,
-            ),
-            target
-                .as_ref()
-                .map(|t| Character::new_from_string(t.to_string(), Gender::Male, true, false))
-                .unwrap_or(UNTARGETED_TARGET),
-        )?;
+        let origin_char = Character::new_from_string(
+            author_mention.mention().to_string(),
+            gender.into(),
+            true,
+            false,
+        );
+        let target_char = target
+            .as_ref()
+            .map(|t| Character::new_from_string(t.to_string(), Gender::Male, true, false))
+            .unwrap_or(UNTARGETED_TARGET);
+        debug!(
+            "building emote {} message for origin {:?} target {:?}",
+            emote, origin_char, target_char
+        );
+        let answers = LogMessageAnswers::new(origin_char, target_char)?;
 
         Ok(condition_texts
             .into_map_texts(&answers, move |text| match text {
@@ -377,6 +385,7 @@ impl Handler {
                         mention_opt.as_ref().map(AsRef::as_ref),
                     )
                     .await?;
+                debug!("emote result: {}", body);
                 msg.reply(context, body).await?;
                 Ok(())
             }
