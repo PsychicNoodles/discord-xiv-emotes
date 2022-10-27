@@ -152,11 +152,15 @@ impl AppCmd for EmoteCmd {
             return Ok(());
         }
 
+        let messages = handler.log_message_repo.messages(&emote)?;
         let body = handler
-            .build_emote_message(&emote, message_db_data, &cmd.user, target.as_deref())
+            .build_emote_message(messages, message_db_data, &cmd.user, target.as_deref())
             .await?;
         cmd.channel_id
             .send_message(context, |m| m.content(body))
+            .await?;
+        handler
+            .log_emote(cmd.user.id, cmd.guild_id, messages)
             .await?;
 
         cmd.create_interaction_response(context, |res| {

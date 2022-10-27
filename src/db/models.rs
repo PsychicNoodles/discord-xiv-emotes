@@ -104,6 +104,7 @@ pub struct DbUser {
     pub discord_id: String,
     pub language: DbLanguage,
     pub gender: DbGender,
+    pub is_set_flg: bool,
     pub insert_tm: time::OffsetDateTime,
     pub update_tm: time::OffsetDateTime,
 }
@@ -114,6 +115,7 @@ impl Default for DbUser {
             discord_id: String::default(),
             language: DbLanguage::default(),
             gender: DbGender::default(),
+            is_set_flg: false,
             insert_tm: OffsetDateTime::now_utc(),
             update_tm: OffsetDateTime::now_utc(),
         }
@@ -190,6 +192,7 @@ pub struct DbGuild {
     pub language: DbLanguage,
     pub gender: DbGender,
     pub prefix: String,
+    pub is_set_flg: bool,
     pub insert_tm: time::OffsetDateTime,
     pub update_tm: time::OffsetDateTime,
 }
@@ -201,6 +204,7 @@ impl Default for DbGuild {
             language: DbLanguage::default(),
             gender: DbGender::default(),
             prefix: DEFAULT_PREFIX.to_string(),
+            is_set_flg: false,
             insert_tm: OffsetDateTime::now_utc(),
             update_tm: OffsetDateTime::now_utc(),
         }

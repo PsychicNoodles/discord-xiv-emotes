@@ -566,9 +566,10 @@ impl AppCmd for EmoteSelectCmd {
         )
         .await?;
 
+        let messages = handler.log_message_repo.messages(&res.emote)?;
         let body = handler
             .build_emote_message(
-                &res.emote,
+                messages,
                 message_db_data,
                 &cmd.user,
                 res.target.as_ref().map(|t| t.to_string()).as_deref(),
@@ -576,6 +577,9 @@ impl AppCmd for EmoteSelectCmd {
             .await?;
         cmd.channel_id
             .send_message(context, |m| m.content(body))
+            .await?;
+        handler
+            .log_emote(cmd.user.id, cmd.guild_id, messages)
             .await?;
 
         cmd.edit_original_interaction_response(context, |d| {

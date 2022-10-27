@@ -9,7 +9,7 @@ use db::{
 };
 use futures::future::{try_join_all, TryFutureExt};
 use sqlx::PgPool;
-use std::{borrow::Cow, time::Duration};
+use std::{borrow::Cow, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::*;
@@ -19,7 +19,7 @@ use serenity::{
     model::prelude::{
         command::Command,
         interaction::{application_command::ApplicationCommandInteraction, Interaction},
-        Mention, Message, Ready,
+        GuildId, Mention, Message, Ready, UserId,
     },
     prelude::Mentionable,
     prelude::{Context, EventHandler, GatewayIntents},
@@ -32,7 +32,7 @@ use xiv_emote_parser::{
         parser::{extract_condition_texts, Text},
         EmoteTextError, LogMessageAnswers,
     },
-    repository::{LogMessageRepository, LogMessageRepositoryError},
+    repository::{EmoteData, LogMessageRepository, LogMessageRepositoryError},
 };
 
 use crate::commands::{global::GlobalCommands, guild::GuildCommands};
@@ -278,7 +278,7 @@ impl Handler {
     #[instrument(skip(self))]
     pub async fn build_emote_message<'a, T: Mentionable + std::fmt::Debug>(
         &self,
-        emote: &str,
+        messages: &Arc<EmoteData>,
         message_db_data: &MessageDbData<'a>,
         author_mentionable: &T,
         target: Option<&str>,
@@ -304,7 +304,6 @@ impl Handler {
             language, gender, ..
         } = user.as_ref();
 
-        let messages = self.log_message_repo.messages(emote)?;
         let localized_messages = language.with_emote_data(messages);
         let condition_texts = extract_condition_texts(if target.is_some() {
             &localized_messages.targeted
@@ -324,7 +323,7 @@ impl Handler {
             .unwrap_or(UNTARGETED_TARGET);
         debug!(
             "building emote {} message for origin {:?} target {:?}",
-            emote, origin_char, target_char
+            messages.name, origin_char, target_char
         );
         let answers = LogMessageAnswers::new(origin_char, target_char)?;
 
@@ -377,9 +376,10 @@ impl Handler {
         match (&emote, mention) {
             (emote, mention_opt) if self.log_message_repo.contains_emote(emote) => {
                 debug!("emote, mention: {}", mention_opt.is_some());
+                let messages = self.log_message_repo.messages(emote)?;
                 let body = self
                     .build_emote_message(
-                        emote,
+                        messages,
                         message_db_data,
                         &msg.author,
                         mention_opt.as_ref().map(AsRef::as_ref),
@@ -387,6 +387,8 @@ impl Handler {
                     .await?;
                 debug!("emote result: {}", body);
                 msg.reply(context, body).await?;
+                self.log_emote(msg.author.id, msg.guild_id, messages)
+                    .await?;
                 Ok(())
             }
             (_, _) => Err(HandlerError::UnrecognizedEmote(original_emote.to_string())),
@@ -409,6 +411,27 @@ impl Handler {
         } else {
             Err(HandlerError::UnrecognizedCommand(cmd.data.name.to_string()))
         }
+    }
+
+    #[instrument(skip(self))]
+    async fn log_emote(
+        &self,
+        user_discord_id: impl AsRef<UserId> + std::fmt::Debug,
+        guild_discord_id: Option<impl AsRef<GuildId> + std::fmt::Debug>,
+        messages: &Arc<EmoteData>,
+    ) -> Result<(), HandlerError> {
+        if let Ok(id) = messages.id.try_into() {
+            self.db
+                .insert_emote_log(
+                    user_discord_id.as_ref().to_string(),
+                    guild_discord_id.as_ref().map(|g| g.as_ref().to_string()),
+                    id,
+                )
+                .await?;
+        } else {
+            error!("could not convert emote id to i32: {}", messages.id);
+        };
+        Ok(())
     }
 }
 
