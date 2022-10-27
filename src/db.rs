@@ -1,7 +1,6 @@
 pub mod models;
 
-use futures::StreamExt;
-use sqlx::{Execute, PgPool};
+use sqlx::PgPool;
 use thiserror::Error;
 use tracing::*;
 
