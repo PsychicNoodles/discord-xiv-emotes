@@ -450,10 +450,21 @@ pub async fn setup_client(token: String, pool: PgPool) -> Client {
     let migrator = sqlx::migrate!("./migrations");
     migrator.run(&pool).await.expect("couldn't run migrations");
     info!("executed {} migrations", migrator.migrations.len());
+
+    let db = Db(pool);
+    db.upsert_emotes(
+        log_message_repo
+            .all_messages()
+            .into_iter()
+            .map(|data| (data.id.try_into().unwrap(), data.name.clone())),
+    )
+    .await
+    .expect("couldn't insert emote data into db");
+
     Client::builder(&token, intents)
         .event_handler(Handler {
             log_message_repo,
-            db: Db(pool),
+            db,
         })
         .await
         .expect("error creating client")

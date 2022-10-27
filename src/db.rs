@@ -1,6 +1,7 @@
 pub mod models;
 
-use sqlx::PgPool;
+use futures::StreamExt;
+use sqlx::{Execute, PgPool};
 use thiserror::Error;
 use tracing::*;
 
@@ -196,6 +197,28 @@ impl Db {
         )
         .execute(&self.0)
         .await?;
+
+        Ok(())
+    }
+
+    pub async fn upsert_emotes(&self, emotes: impl Iterator<Item = (i32, String)>) -> Result<()> {
+        debug!("upserting emotes");
+
+        let now = time::OffsetDateTime::now_utc();
+        for (id, command) in emotes {
+            sqlx::query!(
+                "
+                INSERT INTO emotes (xiv_id, command, insert_tm, update_tm)
+                VALUES ($1, $2, $3, $3)
+                ON CONFLICT (xiv_id) DO UPDATE SET update_tm = $3
+            ",
+                id,
+                command,
+                now
+            )
+            .execute(&self.0)
+            .await?;
+        }
 
         Ok(())
     }

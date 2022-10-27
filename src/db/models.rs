@@ -210,3 +210,12 @@ impl Default for DbGuild {
         }
     }
 }
+
+#[derive(sqlx::FromRow, Debug, Clone)]
+#[sqlx(type_name = "emote")]
+pub struct DbEmote {
+    pub xiv_id: i32,
+    pub command: String,
+    pub insert_tm: time::OffsetDateTime,
+    pub update_tm: time::OffsetDateTime,
+}
