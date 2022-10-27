@@ -415,6 +415,9 @@ pub async fn setup_client(token: String, pool: PgPool) -> Client {
         "repo initialized with emotes: {:?}",
         log_message_repo.emote_list_by_id().collect::<Vec<_>>()
     );
+    let migrator = sqlx::migrate!("./migrations");
+    migrator.run(&pool).await.expect("couldn't run migrations");
+    info!("executed {} migrations", migrator.migrations.len());
     Client::builder(&token, intents)
         .event_handler(Handler {
             log_message_repo,
