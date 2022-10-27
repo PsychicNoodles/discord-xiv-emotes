@@ -337,7 +337,6 @@ async fn handle_interaction(
     interaction: Arc<MessageComponentInteraction>,
     selection: &mut Selection,
 ) -> Result<Option<InteractionResult>, HandlerError> {
-    trace!("incoming interaction: {:?}", interaction);
     match Ids::try_from(interaction.data.custom_id.as_str()) {
         Ok(Ids::InputTargetBtn) => {
             debug!("target input");

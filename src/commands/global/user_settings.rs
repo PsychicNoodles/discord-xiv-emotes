@@ -98,7 +98,6 @@ async fn handle_interaction(
     interaction: Arc<MessageComponentInteraction>,
     user: &mut DbUser,
 ) -> Result<Option<DbUser>, HandlerError> {
-    trace!("incoming interactions: {:?}", interaction);
     match Ids::try_from(interaction.data.custom_id.as_str()) {
         Ok(Ids::GenderSelect) => {
             let value = &interaction.data.values[0];
