@@ -54,10 +54,10 @@ pub const EMOTE_NOT_EXISTS: LocalizedString = LocalizedString {
         LIST_EMOTES_NAME.ja
     ),
 };
-// pub const EMOTE_SENT: LocalizedString = LocalizedString {
-//     en: "Emote sent!",
-//     ja: "送信しました！",
-// };
+pub const EMOTE_SENT: LocalizedString = LocalizedString {
+    en: "Emote sent!",
+    ja: "送信しました！",
+};
 
 #[instrument(skip(context))]
 fn resolve_mention(data: &CommandData, context: &Context) -> Option<String> {
@@ -159,21 +159,21 @@ impl AppCmd for EmoteCmd {
             .send_message(context, |m| m.content(body))
             .await?;
 
-        // cmd.create_interaction_response(context, |res| {
-        //     res.interaction_response_data(|d| {
-        //         d.ephemeral(true).content(format!(
-        //             "{} ({}{})",
-        //             EMOTE_SENT.for_user(&user_settings),
-        //             emote,
-        //             if let Some(t) = &target {
-        //                 [" ".to_string(), t.to_string()].concat()
-        //             } else {
-        //                 "".to_string()
-        //             }
-        //         ))
-        //     })
-        // })
-        // .await?;
+        cmd.create_interaction_response(context, |res| {
+            res.interaction_response_data(|d| {
+                d.ephemeral(true).content(format!(
+                    "{} ({}{})",
+                    EMOTE_SENT.for_user(&user_settings),
+                    emote,
+                    if let Some(t) = &target {
+                        [" ".to_string(), t.to_string()].concat()
+                    } else {
+                        "".to_string()
+                    }
+                ))
+            })
+        })
+        .await?;
 
         Ok(())
     }
