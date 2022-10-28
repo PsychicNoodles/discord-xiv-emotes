@@ -1,10 +1,10 @@
-use std::str::FromStr;
+use std::{collections::HashMap, hash::Hash, str::FromStr};
 
 use async_trait::async_trait;
 use serenity::{
     builder::CreateApplicationCommand,
-    model::prelude::interaction::application_command::ApplicationCommandInteraction,
-    prelude::Context,
+    model::prelude::{interaction::application_command::ApplicationCommandInteraction, CommandId},
+    prelude::{Context, TypeMapKey},
 };
 
 use crate::{util::LocalizedString, Handler, HandlerError, MessageDbData};
@@ -30,7 +30,9 @@ trait AppCmd {
 }
 
 #[async_trait]
-pub trait CommandsEnum: FromStr {
+pub trait CommandsEnum:
+    FromStr + TypeMapKey<Value = HashMap<CommandId, Self>> + std::fmt::Debug + Copy + Eq + Hash
+{
     async fn handle(
         self,
         cmd: &ApplicationCommandInteraction,

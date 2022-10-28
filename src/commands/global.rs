@@ -1,10 +1,10 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use async_trait::async_trait;
 use serenity::{
     builder::CreateApplicationCommand,
-    model::prelude::interaction::application_command::ApplicationCommandInteraction,
-    prelude::Context,
+    model::prelude::{interaction::application_command::ApplicationCommandInteraction, CommandId},
+    prelude::{Context, TypeMapKey},
 };
 use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, Display, EnumIter};
@@ -25,7 +25,7 @@ pub mod list_emotes;
 pub mod stats;
 pub mod user_settings;
 
-#[derive(Debug, Clone, Copy, AsRefStr, Display, EnumIter)]
+#[derive(Debug, Clone, Copy, AsRefStr, Display, EnumIter, PartialEq, Eq, Hash)]
 pub enum GlobalCommands {
     EmoteSelect,
     UserSettings,
@@ -84,6 +84,10 @@ impl CommandsEnum for GlobalCommands {
         }
         .await
     }
+}
+
+impl TypeMapKey for GlobalCommands {
+    type Value = HashMap<CommandId, Self>;
 }
 
 #[derive(Debug, Clone, Error)]

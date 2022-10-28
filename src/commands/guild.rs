@@ -1,13 +1,13 @@
 pub mod server_settings;
 pub mod stats;
 
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use async_trait::async_trait;
 use serenity::{
     builder::CreateApplicationCommand,
-    model::prelude::interaction::application_command::ApplicationCommandInteraction,
-    prelude::Context,
+    model::prelude::{interaction::application_command::ApplicationCommandInteraction, CommandId},
+    prelude::{Context, TypeMapKey},
 };
 use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, Display, EnumIter};
@@ -19,7 +19,7 @@ use self::{server_settings::ServerSettingsCmd, stats::GuildStatsCmd};
 
 use super::{AppCmd, CommandsEnum};
 
-#[derive(Debug, Clone, Copy, AsRefStr, Display, EnumIter)]
+#[derive(Debug, Clone, Copy, AsRefStr, Display, EnumIter, PartialEq, Eq, Hash)]
 pub enum GuildCommands {
     ServerSettings,
     Stats,
@@ -62,6 +62,10 @@ impl CommandsEnum for GuildCommands {
         }
         .await
     }
+}
+
+impl TypeMapKey for GuildCommands {
+    type Value = HashMap<CommandId, Self>;
 }
 
 #[derive(Debug, Clone, Error)]
