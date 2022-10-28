@@ -127,7 +127,7 @@ pub enum HandlerError {
     #[error("Internal error, could not build response")]
     TargetNone,
     #[error("Internal error, could not build response")]
-    Db(#[from] db::DbError),
+    Db(#[from] sqlx::Error),
     #[error("Failed to send message")]
     Send(#[from] serenity::Error),
     #[error("Command can only be used in a server")]
@@ -140,6 +140,10 @@ pub enum HandlerError {
     UnexpectedData,
     #[error("Maximum number of commands reached")]
     ApplicationCommandCap,
+    #[error("Internal error, could not build response")]
+    EmoteLogCountNoParams,
+    #[error("Internal error, could not build response")]
+    CountNone,
 }
 
 impl HandlerError {
@@ -250,17 +254,25 @@ impl EventHandler for Handler {
             ready.guilds.iter().map(|ug| ug.id).collect::<Vec<_>>()
         );
 
-        if let Err(err) = Command::set_global_application_commands(&context, |create| {
+        match Command::set_global_application_commands(&context, |create| {
             create.set_application_commands(GlobalCommands::application_commands().collect());
             create
         })
         .await
         {
-            error!("error registering global application commands: {:?}", err);
-            context.shard.shutdown_clean();
+            Ok(res) => {
+                info!(
+                    "registered global commands: {:?}",
+                    res.into_iter().map(|c| c.name).collect::<Vec<_>>()
+                );
+            }
+            Err(err) => {
+                error!("error registering global application commands: {:?}", err);
+                context.shard.shutdown_clean();
+            }
         }
 
-        if let Err(err) = try_join_all(ready.guilds.iter().map(|g| {
+        match try_join_all(ready.guilds.iter().map(|g| {
             g.id.set_application_commands(&context, |create| {
                 create.set_application_commands(GuildCommands::application_commands().collect());
                 create
@@ -268,8 +280,18 @@ impl EventHandler for Handler {
         }))
         .await
         {
-            error!("error registering guild application commands: {:?}", err);
-            context.shard.shutdown_clean();
+            Ok(res) => {
+                if let Some(sample) = res.first() {
+                    info!(
+                        "registered guild commands: {:?}",
+                        sample.into_iter().map(|c| &c.name).collect::<Vec<_>>()
+                    );
+                }
+            }
+            Err(err) => {
+                error!("error registering guild application commands: {:?}", err);
+                context.shard.shutdown_clean();
+            }
         }
     }
 }

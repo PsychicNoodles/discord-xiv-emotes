@@ -1,4 +1,5 @@
 pub mod server_settings;
+pub mod stats;
 
 use std::str::FromStr;
 
@@ -14,19 +15,21 @@ use thiserror::Error;
 
 use crate::{util::LocalizedString, Handler, HandlerError, MessageDbData};
 
-use self::server_settings::ServerSettingsCmd;
+use self::{server_settings::ServerSettingsCmd, stats::GuildStatsCmd};
 
 use super::{AppCmd, CommandsEnum};
 
 #[derive(Debug, Clone, Copy, AsRefStr, Display, EnumIter)]
 pub enum GuildCommands {
     ServerSettings,
+    Stats,
 }
 
 impl GuildCommands {
     pub fn to_application_command(self) -> CreateApplicationCommand {
         match self {
             GuildCommands::ServerSettings => ServerSettingsCmd::to_application_command(),
+            GuildCommands::Stats => GuildStatsCmd::to_application_command(),
         }
     }
 
@@ -37,6 +40,7 @@ impl GuildCommands {
     pub fn name(self) -> LocalizedString {
         match self {
             GuildCommands::ServerSettings => ServerSettingsCmd::name(),
+            GuildCommands::Stats => GuildStatsCmd::name(),
         }
     }
 }
@@ -54,6 +58,7 @@ impl CommandsEnum for GuildCommands {
             GuildCommands::ServerSettings => {
                 ServerSettingsCmd::handle(cmd, handler, context, message_db_data)
             }
+            GuildCommands::Stats => GuildStatsCmd::handle(cmd, handler, context, message_db_data),
         }
         .await
     }

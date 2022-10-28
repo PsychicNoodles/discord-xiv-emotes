@@ -33,3 +33,6 @@ strum = "0.24"
 strum_macros = "0.24"
 async-trait = "0.1"
 const_format = "0.2"
+
+[profile.dev.package.sqlx-macros]
+opt-level = 3

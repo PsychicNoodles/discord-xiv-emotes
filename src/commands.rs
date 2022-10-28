@@ -11,6 +11,7 @@ use crate::{util::LocalizedString, Handler, HandlerError, MessageDbData};
 
 pub mod global;
 pub mod guild;
+pub mod stats;
 
 #[async_trait]
 trait AppCmd {
