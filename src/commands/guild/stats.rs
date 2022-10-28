@@ -118,7 +118,7 @@ impl AppCmd for GuildStatsCmd {
             .options
             .get(0)
             .ok_or(HandlerError::UnexpectedData)?;
-        let sub_option = cmd.data.options.get(1);
+        let sub_option = top_option.options.get(0);
         let kind = match (&top_option.name, sub_option.map(|o| &o.name)) {
             (_t, _) if GUILD_SUB_NAME.any_eq(_t) => EmoteLogQuery::Guild(guild_id),
             (_t, _) if GUILD_USER_SUB_NAME.any_eq(_t) => EmoteLogQuery::GuildUser((

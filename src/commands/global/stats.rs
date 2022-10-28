@@ -91,7 +91,7 @@ impl AppCmd for GlobalStatsCmd {
             .options
             .get(0)
             .ok_or(HandlerError::UnexpectedData)?;
-        let sub_option = cmd.data.options.get(1);
+        let sub_option = top_option.options.get(0);
         let kind = match (&top_option.name, sub_option.map(|o| &o.name)) {
             (_s, _) if USER_SUB_NAME.any_eq(_s) => {
                 EmoteLogQuery::User(*user_id_opt.ok_or(HandlerError::UnexpectedData)?)
