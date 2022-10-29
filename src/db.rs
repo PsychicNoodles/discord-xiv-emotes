@@ -1,14 +1,17 @@
 pub mod models;
+pub mod util;
 
 use std::borrow::Borrow;
 
 use futures::{stream, StreamExt, TryStreamExt};
+use serenity::model::prelude::{GuildId, UserId};
 use sqlx::{PgPool, QueryBuilder};
 use tracing::*;
 
 use crate::{commands::stats::EmoteLogQuery, HandlerError};
 
 use self::models::{DbGender, DbGuild, DbLanguage, DbUser};
+use self::util::DiscordIdExt;
 
 #[derive(Debug)]
 pub struct Db(pub PgPool);
@@ -17,7 +20,7 @@ impl Db {
     #[instrument]
     pub async fn upsert_user(
         &self,
-        discord_id: impl AsRef<str> + std::fmt::Debug,
+        discord_id: &UserId,
         language: DbLanguage,
         gender: DbGender,
     ) -> Result<(), HandlerError> {
@@ -30,7 +33,7 @@ impl Db {
             ON CONFLICT (discord_id) DO UPDATE
             SET discord_id = $1, language = $2, gender = $3, is_set_flg = true, update_tm = $4
             ",
-            discord_id.as_ref(),
+            discord_id.to_db_string(),
             language as i32,
             gender as i32,
             now
@@ -41,10 +44,7 @@ impl Db {
     }
 
     #[instrument]
-    pub async fn find_user(
-        &self,
-        discord_id: impl AsRef<str> + std::fmt::Debug,
-    ) -> Result<Option<DbUser>, HandlerError> {
+    pub async fn find_user(&self, discord_id: &UserId) -> Result<Option<DbUser>, HandlerError> {
         debug!("finding user");
         let res = sqlx::query_as!(
             DbUser,
@@ -59,7 +59,7 @@ impl Db {
             FROM users
             WHERE discord_id = $1
             "#,
-            discord_id.as_ref()
+            discord_id.to_db_string()
         )
         .fetch_optional(&self.0)
         .await?;
@@ -70,7 +70,7 @@ impl Db {
     #[instrument]
     pub async fn upsert_guild(
         &self,
-        discord_id: impl AsRef<str> + std::fmt::Debug,
+        discord_id: &GuildId,
         language: DbLanguage,
         gender: DbGender,
         prefix: String,
@@ -84,7 +84,7 @@ impl Db {
             ON CONFLICT (discord_id) DO UPDATE
             SET discord_id = $1, language = $2, gender = $3, prefix = $4, is_set_flg = true, update_tm = $5
             ",
-            discord_id.as_ref(),
+            discord_id.to_db_string(),
             language as i32,
             gender as i32,
             prefix,
@@ -96,10 +96,7 @@ impl Db {
     }
 
     #[instrument]
-    pub async fn find_guild(
-        &self,
-        discord_id: impl AsRef<str> + std::fmt::Debug,
-    ) -> Result<Option<DbGuild>, HandlerError> {
+    pub async fn find_guild(&self, discord_id: &GuildId) -> Result<Option<DbGuild>, HandlerError> {
         debug!("finding guild");
         let res = sqlx::query_as!(
             DbGuild,
@@ -115,7 +112,7 @@ impl Db {
             FROM guilds
             WHERE discord_id = $1
             "#,
-            discord_id.as_ref()
+            discord_id.to_db_string()
         )
         .fetch_optional(&self.0)
         .await?;
@@ -125,7 +122,7 @@ impl Db {
 
     async fn upsert_user_not_set(
         &self,
-        user_discord_id: impl AsRef<str> + std::fmt::Debug,
+        user_discord_id: &UserId,
         user_language: DbLanguage,
         user_gender: DbGender,
         now: time::OffsetDateTime,
@@ -137,7 +134,7 @@ impl Db {
             ON CONFLICT (discord_id) DO UPDATE SET update_tm = $4
             RETURNING user_id
             ",
-            user_discord_id.as_ref(),
+            user_discord_id.to_db_string(),
             user_language as i32,
             user_gender as i32,
             now
@@ -151,9 +148,9 @@ impl Db {
     #[instrument]
     pub async fn insert_emote_log(
         &self,
-        user_discord_id: impl AsRef<str> + std::fmt::Debug,
-        guild_discord_id: Option<impl AsRef<str> + std::fmt::Debug>,
-        target_discord_ids: impl Iterator<Item = impl AsRef<str> + std::fmt::Debug> + std::fmt::Debug,
+        user_discord_id: &UserId,
+        guild_discord_id: Option<&GuildId>,
+        target_discord_ids: impl Iterator<Item = &UserId> + std::fmt::Debug,
         emote_id: i32,
     ) -> Result<(), HandlerError> {
         debug!("inserting emote log");
@@ -181,7 +178,7 @@ impl Db {
                 ON CONFLICT (discord_id) DO UPDATE SET update_tm = $5
                 RETURNING guild_id
                 ",
-                gdi.as_ref(),
+                gdi.to_db_string(),
                 guild_language as i32,
                 guild_gender as i32,
                 guild_prefix,

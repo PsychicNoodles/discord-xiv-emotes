@@ -589,14 +589,14 @@ impl AppCmd for EmoteSelectCmd {
             .await?;
         handler
             .log_emote(
-                cmd.user.id,
-                cmd.guild_id,
+                &cmd.user.id,
+                cmd.guild_id.as_ref(),
                 res.target
                     .as_ref()
                     .map(Target::user_id)
                     .flatten()
-                    .iter()
-                    .map(ToString::to_string),
+                    .map(|id| *id)
+                    .iter(),
                 messages,
             )
             .await?;

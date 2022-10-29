@@ -6,9 +6,9 @@ use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::{
         command::{CommandOptionType, CommandType},
-        interaction::application_command::{ApplicationCommandInteraction, CommandData},
+        interaction::application_command::ApplicationCommandInteraction,
     },
-    prelude::{Context, Mentionable},
+    prelude::Context,
 };
 use tracing::*;
 
@@ -58,30 +58,6 @@ pub const EMOTE_SENT: LocalizedString = LocalizedString {
     en: "Emote sent!",
     ja: "送信しました！",
 };
-
-#[instrument]
-fn resolve_mentions(data: &CommandData) -> Vec<String> {
-    let mut res: Vec<_> = data
-        .resolved
-        .users
-        .values()
-        .map(|u| u.mention().to_string())
-        .chain(
-            data.resolved
-                .members
-                .keys()
-                .map(|m| m.mention().to_string()),
-        )
-        .chain(
-            data.resolved
-                .roles
-                .values()
-                .map(|u| u.mention().to_string()),
-        )
-        .collect();
-    res.dedup();
-    res
-}
 
 pub struct EmoteCmd;
 
@@ -168,9 +144,9 @@ impl AppCmd for EmoteCmd {
         debug!("resolved: {:?}", cmd.data.resolved);
         handler
             .log_emote(
-                cmd.user.id,
-                cmd.guild_id,
-                resolve_mentions(&cmd.data).into_iter(),
+                &cmd.user.id,
+                cmd.guild_id.as_ref(),
+                cmd.data.resolved.users.keys(),
                 messages,
             )
             .await?;

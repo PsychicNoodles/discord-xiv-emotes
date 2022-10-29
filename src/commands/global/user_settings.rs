@@ -256,7 +256,6 @@ impl AppCmd for UserSettingsCmd {
     {
         trace!("finding existing user");
         let user = message_db_data.determine_user_settings().await?;
-        let user_id = cmd.user.id;
 
         cmd.create_interaction_response(context, |res| {
             create_response(
@@ -272,7 +271,7 @@ impl AppCmd for UserSettingsCmd {
 
         handler
             .db
-            .upsert_user(user_id.to_string(), user.language, user.gender)
+            .upsert_user(&cmd.user.id, user.language, user.gender)
             .await?;
 
         Ok(())

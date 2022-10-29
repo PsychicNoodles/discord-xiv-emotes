@@ -355,12 +355,7 @@ impl AppCmd for ServerSettingsCmd {
 
         handler
             .db
-            .upsert_guild(
-                guild_id.to_string(),
-                guild.language,
-                guild.gender,
-                guild.prefix,
-            )
+            .upsert_guild(&guild_id, guild.language, guild.gender, guild.prefix)
             .await?;
 
         Ok(())

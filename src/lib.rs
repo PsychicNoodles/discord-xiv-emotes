@@ -5,11 +5,12 @@ pub mod util;
 use commands::CommandsEnum;
 use db::{
     models::{DbGuild, DbUser},
+    util::DiscordIdExt,
     Db,
 };
 use futures::{future::try_join_all, stream, StreamExt, TryStreamExt};
 use sqlx::PgPool;
-use std::{borrow::Cow, collections::HashMap, sync::Arc, time::Duration};
+use std::{borrow::Cow, collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::*;
@@ -45,8 +46,8 @@ pub struct Handler {
 #[derive(Debug, Clone)]
 pub struct MessageDbData<'a> {
     db: &'a Db,
-    user_discord_id: String,
-    guild_discord_id: Option<String>,
+    user_discord_id: UserId,
+    guild_discord_id: Option<GuildId>,
     user_cell: OnceCell<Option<DbUser>>,
     guild_cell: OnceCell<Option<DbGuild>>,
 }
@@ -54,8 +55,8 @@ pub struct MessageDbData<'a> {
 impl<'a> MessageDbData<'a> {
     pub fn new(
         db: &Db,
-        user_discord_id: String,
-        guild_discord_id: Option<String>,
+        user_discord_id: UserId,
+        guild_discord_id: Option<GuildId>,
     ) -> MessageDbData {
         MessageDbData {
             db,
@@ -97,7 +98,7 @@ impl<'a> MessageDbData<'a> {
         }
         if let Some(guild) = self.guild().await? {
             return Ok(Cow::Owned(DbUser {
-                discord_id: self.user_discord_id.clone(),
+                discord_id: self.user_discord_id.to_db_string(),
                 ..DbUser::from(guild.as_ref())
             }));
         }
@@ -180,11 +181,7 @@ impl EventHandler for Handler {
 
         info!("handling message");
 
-        let message_db_data = MessageDbData::new(
-            &self.db,
-            msg.author.id.to_string(),
-            msg.guild_id.as_ref().map(ToString::to_string),
-        );
+        let message_db_data = MessageDbData::new(&self.db, msg.author.id, msg.guild_id);
 
         let guild = match message_db_data.guild().await {
             Ok(guild) => guild.unwrap_or_default(),
@@ -217,11 +214,7 @@ impl EventHandler for Handler {
     #[instrument(skip(self, context))]
     async fn interaction_create(&self, context: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(cmd) = interaction {
-            let message_db_data = MessageDbData::new(
-                &self.db,
-                cmd.user.id.to_string(),
-                cmd.guild_id.as_ref().map(ToString::to_string),
-            );
+            let message_db_data = MessageDbData::new(&self.db, cmd.user.id, cmd.guild_id);
 
             let handle_res = match self
                 .try_handle_commands::<GlobalCommands>(&context, &cmd, &message_db_data)
@@ -359,7 +352,7 @@ impl EventHandler for Handler {
 
 impl Handler {
     #[instrument(skip(self))]
-    pub async fn build_emote_message<'a, T: Mentionable + std::fmt::Debug>(
+    pub async fn build_emote_message<'a, T: Mentionable + Debug>(
         &self,
         messages: &Arc<EmoteData>,
         message_db_data: &MessageDbData<'a>,
@@ -471,9 +464,9 @@ impl Handler {
                 debug!("emote result: {}", body);
                 msg.reply(context, body).await?;
                 self.log_emote(
-                    msg.author.id,
-                    msg.guild_id,
-                    msg.mentions.iter().map(|u| u.id.to_string()),
+                    &msg.author.id,
+                    msg.guild_id.as_ref(),
+                    msg.mentions.iter().map(|u| &u.id),
                     messages,
                 )
                 .await?;
@@ -509,19 +502,14 @@ impl Handler {
     #[instrument(skip(self))]
     async fn log_emote(
         &self,
-        user_discord_id: impl AsRef<UserId> + std::fmt::Debug,
-        guild_discord_id: Option<impl AsRef<GuildId> + std::fmt::Debug>,
-        target_discord_ids: impl Iterator<Item = impl AsRef<str> + std::fmt::Debug> + std::fmt::Debug,
+        user_discord_id: &UserId,
+        guild_discord_id: Option<&GuildId>,
+        target_discord_ids: impl Iterator<Item = &UserId> + Debug,
         messages: &Arc<EmoteData>,
     ) -> Result<(), HandlerError> {
         if let Ok(id) = messages.id.try_into() {
             self.db
-                .insert_emote_log(
-                    user_discord_id.as_ref().to_string(),
-                    guild_discord_id.as_ref().map(|g| g.as_ref().to_string()),
-                    target_discord_ids,
-                    id,
-                )
+                .insert_emote_log(user_discord_id, guild_discord_id, target_discord_ids, id)
                 .await?;
         } else {
             error!("could not convert emote id to i32: {}", messages.id);
