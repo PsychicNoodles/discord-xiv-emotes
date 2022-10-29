@@ -152,6 +152,15 @@ impl ToString for Target {
     }
 }
 
+impl Target {
+    fn user_id(&self) -> Option<&UserId> {
+        match self {
+            Target::User(u) => Some(u),
+            Target::Plain(_) => None,
+        }
+    }
+}
+
 // max number of select menu options
 const EMOTE_LIST_OFFSET_STEP: usize = 25;
 
@@ -579,7 +588,17 @@ impl AppCmd for EmoteSelectCmd {
             .send_message(context, |m| m.content(body))
             .await?;
         handler
-            .log_emote(cmd.user.id, cmd.guild_id, messages)
+            .log_emote(
+                cmd.user.id,
+                cmd.guild_id,
+                res.target
+                    .as_ref()
+                    .map(Target::user_id)
+                    .flatten()
+                    .iter()
+                    .map(ToString::to_string),
+                messages,
+            )
             .await?;
 
         cmd.edit_original_interaction_response(context, |d| {

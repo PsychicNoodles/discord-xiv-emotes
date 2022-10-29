@@ -2,7 +2,8 @@ pub mod models;
 
 use std::borrow::Borrow;
 
-use sqlx::PgPool;
+use futures::{stream, StreamExt, TryStreamExt};
+use sqlx::{PgPool, QueryBuilder};
 use tracing::*;
 
 use crate::{commands::stats::EmoteLogQuery, HandlerError};
@@ -122,21 +123,14 @@ impl Db {
         Ok(res)
     }
 
-    #[instrument]
-    pub async fn insert_emote_log(
+    async fn upsert_user_not_set(
         &self,
         user_discord_id: impl AsRef<str> + std::fmt::Debug,
-        guild_discord_id: Option<impl AsRef<str> + std::fmt::Debug>,
-        emote_id: i32,
-    ) -> Result<(), HandlerError> {
-        debug!("inserting emote log");
-        let now = time::OffsetDateTime::now_utc();
-        let DbUser {
-            language: user_language,
-            gender: user_gender,
-            ..
-        } = DbUser::default();
-        let user_id = sqlx::query!(
+        user_language: DbLanguage,
+        user_gender: DbGender,
+        now: time::OffsetDateTime,
+    ) -> Result<i64, HandlerError> {
+        Ok(sqlx::query!(
             "
             INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)
             VALUES ($1, $2, $3, false, $4, $4)
@@ -150,7 +144,28 @@ impl Db {
         )
         .fetch_one(&self.0)
         .await?
-        .user_id;
+        .user_id)
+    }
+
+    /// target_discord_ids is used in a WHERE IN, so any duplicates are ignored
+    #[instrument]
+    pub async fn insert_emote_log(
+        &self,
+        user_discord_id: impl AsRef<str> + std::fmt::Debug,
+        guild_discord_id: Option<impl AsRef<str> + std::fmt::Debug>,
+        target_discord_ids: impl Iterator<Item = impl AsRef<str> + std::fmt::Debug> + std::fmt::Debug,
+        emote_id: i32,
+    ) -> Result<(), HandlerError> {
+        debug!("inserting emote log");
+        let now = time::OffsetDateTime::now_utc();
+        let DbUser {
+            language: user_language,
+            gender: user_gender,
+            ..
+        } = DbUser::default();
+        let user_id = self
+            .upsert_user_not_set(user_discord_id, user_language, user_gender, now)
+            .await?;
 
         let guild_id = if let Some(gdi) = guild_discord_id {
             let DbGuild {
@@ -179,18 +194,55 @@ impl Db {
             None
         };
 
-        sqlx::query!(
+        let emote_log_id = sqlx::query!(
             "
             INSERT INTO emote_logs (user_id, guild_id, emote_id, sent_at, insert_tm, update_tm)
             VALUES ($1, $2, $3, $4, $4, $4)
+            RETURNING emote_log_id
             ",
             user_id,
             guild_id,
             emote_id,
             now
         )
-        .execute(&self.0)
-        .await?;
+        .fetch_one(&self.0)
+        .await?
+        .emote_log_id;
+
+        // push_values below needs an iterator, so collect the upsert results first
+        let user_ids: Vec<_> = stream::iter(target_discord_ids)
+            .then(|id| async {
+                self.upsert_user_not_set(id, user_language, user_gender, now)
+                    .await
+            })
+            .try_collect()
+            .await?;
+
+        let mut query_builder =
+            QueryBuilder::new("INSERT INTO emote_log_tags (emote_log_id, user_id) ");
+        let mut is_empty = true;
+        query_builder.push_values(user_ids.into_iter(), |mut builder, id| {
+            is_empty = false;
+            trace!("pushing mention {:?}", id.to_string());
+            builder.push_bind(emote_log_id).push_bind(id);
+        });
+        if !is_empty {
+            debug!("saving non-zero amount of mentions");
+            query_builder.build().execute(&self.0).await?;
+        }
+
+        // sqlx::query!(
+        //     "
+        //     INSERT INTO emote_log_tags (emote_log_id, user_id)
+        //     SELECT DISTINCT $1::bigint, users.user_id
+        //     FROM users
+        //     WHERE users.discord_id IN ($2)
+        //     ",
+        //     emote_log_id,
+        //     target_discord_ids.map(|id| id.0).collect::<Vec<_>>()
+        // )
+        // .execute(&self.0)
+        // .await?;
 
         Ok(())
     }

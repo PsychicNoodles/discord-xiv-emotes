@@ -59,26 +59,28 @@ pub const EMOTE_SENT: LocalizedString = LocalizedString {
     ja: "送信しました！",
 };
 
-#[instrument(skip(context))]
-fn resolve_mention(data: &CommandData, context: &Context) -> Option<String> {
-    if let Some(user) = data.resolved.users.values().next() {
-        debug!("resolved to user");
-        Some(user.mention().to_string())
-    } else if let Some(role) = data.resolved.roles.values().next() {
-        debug!("resolved to role");
-        Some(role.mention().to_string())
-    } else if let Some(channel) = data.resolved.channels.values().next() {
-        debug!("resolved to channel");
-        context
-            .cache
-            .channel(channel.id)
-            .map(|c| c.mention().to_string())
-    } else if let Some(plain) = data.options.get(1).and_then(|opt| opt.value.clone()) {
-        debug!("resolved to plain text");
-        plain.as_str().map(ToString::to_string)
-    } else {
-        None
-    }
+#[instrument]
+fn resolve_mentions(data: &CommandData) -> Vec<String> {
+    let mut res: Vec<_> = data
+        .resolved
+        .users
+        .values()
+        .map(|u| u.mention().to_string())
+        .chain(
+            data.resolved
+                .members
+                .keys()
+                .map(|m| m.mention().to_string()),
+        )
+        .chain(
+            data.resolved
+                .roles
+                .values()
+                .map(|u| u.mention().to_string()),
+        )
+        .collect();
+    res.dedup();
+    res
 }
 
 pub struct EmoteCmd;
@@ -125,8 +127,6 @@ impl AppCmd for EmoteCmd {
             .and_then(|o| o.value.as_ref())
             .and_then(|v| v.as_str())
             .ok_or(HandlerError::UnexpectedData)?;
-        let target = resolve_mention(&cmd.data, context);
-        trace!("target is {:?}", target);
 
         let user_settings = message_db_data.determine_user_settings().await?;
         let guild = message_db_data.guild().await?.unwrap_or_default();
@@ -153,14 +153,26 @@ impl AppCmd for EmoteCmd {
         }
 
         let messages = handler.log_message_repo.messages(&emote)?;
+        let target = cmd
+            .data
+            .options
+            .get(1)
+            .and_then(|opt| opt.value.clone())
+            .and_then(|value| value.as_str().map(ToString::to_string));
         let body = handler
             .build_emote_message(messages, message_db_data, &cmd.user, target.as_deref())
             .await?;
         cmd.channel_id
             .send_message(context, |m| m.content(body))
             .await?;
+        debug!("resolved: {:?}", cmd.data.resolved);
         handler
-            .log_emote(cmd.user.id, cmd.guild_id, messages)
+            .log_emote(
+                cmd.user.id,
+                cmd.guild_id,
+                resolve_mentions(&cmd.data).into_iter(),
+                messages,
+            )
             .await?;
 
         cmd.create_interaction_response(context, |res| {

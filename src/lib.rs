@@ -7,10 +7,7 @@ use db::{
     models::{DbGuild, DbUser},
     Db,
 };
-use futures::{
-    future::{try_join_all, TryFutureExt},
-    stream, StreamExt, TryStreamExt,
-};
+use futures::{future::try_join_all, stream, StreamExt, TryStreamExt};
 use sqlx::PgPool;
 use std::{borrow::Cow, collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
@@ -226,13 +223,21 @@ impl EventHandler for Handler {
                 cmd.guild_id.as_ref().map(ToString::to_string),
             );
 
-            if let Err(err) = self
+            let handle_res = match self
                 .try_handle_commands::<GlobalCommands>(&context, &cmd, &message_db_data)
-                .or_else(|_| {
-                    self.try_handle_commands::<GuildCommands>(&context, &cmd, &message_db_data)
-                })
                 .await
             {
+                Some(res) => res,
+                None => match self
+                    .try_handle_commands::<GuildCommands>(&context, &cmd, &message_db_data)
+                    .await
+                {
+                    Some(r) => r,
+                    None => Err(HandlerError::UnrecognizedCommand(cmd.data.name.to_string())),
+                },
+            };
+
+            if let Err(err) = handle_res {
                 error!("error during interaction processing: {:?}", err);
                 if err.should_followup() {
                     if let Err(e) = cmd
@@ -465,8 +470,13 @@ impl Handler {
                     .await?;
                 debug!("emote result: {}", body);
                 msg.reply(context, body).await?;
-                self.log_emote(msg.author.id, msg.guild_id, messages)
-                    .await?;
+                self.log_emote(
+                    msg.author.id,
+                    msg.guild_id,
+                    msg.mentions.iter().map(|u| u.id.to_string()),
+                    messages,
+                )
+                .await?;
                 Ok(())
             }
             (_, _) => Err(HandlerError::UnrecognizedEmote(original_emote.to_string())),
@@ -479,18 +489,21 @@ impl Handler {
         context: &Context,
         cmd: &ApplicationCommandInteraction,
         message_db_data: &MessageDbData<'a>,
-    ) -> Result<(), HandlerError>
+    ) -> Option<Result<(), HandlerError>>
     where
         T: CommandsEnum,
     {
         let read = context.data.read().await;
-        let app_cmd = read
-            .get::<T>()
-            .ok_or(HandlerError::TypeMapNotFound)?
-            .get(&cmd.data.id)
-            .ok_or(HandlerError::UnrecognizedCommand(cmd.data.name.to_string()))?;
-        trace!("handing off to app command handler: {:?}", app_cmd);
-        app_cmd.handle(cmd, self, context, message_db_data).await
+        if let Some(cmd_map) = read.get::<T>() {
+            if let Some(app_cmd) = cmd_map.get(&cmd.data.id) {
+                trace!("handing off to app command handler: {:?}", app_cmd);
+                Some(app_cmd.handle(cmd, self, context, message_db_data).await)
+            } else {
+                None
+            }
+        } else {
+            Some(Err(HandlerError::TypeMapNotFound))
+        }
     }
 
     #[instrument(skip(self))]
@@ -498,6 +511,7 @@ impl Handler {
         &self,
         user_discord_id: impl AsRef<UserId> + std::fmt::Debug,
         guild_discord_id: Option<impl AsRef<GuildId> + std::fmt::Debug>,
+        target_discord_ids: impl Iterator<Item = impl AsRef<str> + std::fmt::Debug> + std::fmt::Debug,
         messages: &Arc<EmoteData>,
     ) -> Result<(), HandlerError> {
         if let Ok(id) = messages.id.try_into() {
@@ -505,6 +519,7 @@ impl Handler {
                 .insert_emote_log(
                     user_discord_id.as_ref().to_string(),
                     guild_discord_id.as_ref().map(|g| g.as_ref().to_string()),
+                    target_discord_ids,
                     id,
                 )
                 .await?;
