@@ -64,6 +64,11 @@ impl AppCmd for GuildStatsCmd {
                 opt.kind(CommandOptionType::SubCommand)
                     .localized_name(GUILD_SUB_NAME)
                     .localized_desc(GUILD_SUB_DESC)
+                    .create_sub_option(|sub| {
+                        sub.kind(CommandOptionType::String)
+                            .localized_name(EMOTE_OPT_NAME)
+                            .localized_desc(EMOTE_OPT_DESC)
+                    })
             })
             .create_option(|opt| {
                 opt.kind(CommandOptionType::SubCommand)
@@ -75,6 +80,11 @@ impl AppCmd for GuildStatsCmd {
                             .localized_desc(USER_OPT_DESC)
                             .required(true)
                     })
+                    .create_sub_option(|sub| {
+                        sub.kind(CommandOptionType::String)
+                            .localized_name(EMOTE_OPT_NAME)
+                            .localized_desc(EMOTE_OPT_DESC)
+                    })
             })
             .create_option(|opt| {
                 opt.kind(CommandOptionType::SubCommandGroup)
@@ -84,6 +94,11 @@ impl AppCmd for GuildStatsCmd {
                         grp.kind(CommandOptionType::SubCommand)
                             .localized_name(RECEIVED_GUILD_SUB_NAME)
                             .localized_desc(RECEIVED_GUILD_SUB_DESC)
+                            .create_sub_option(|sub| {
+                                sub.kind(CommandOptionType::String)
+                                    .localized_name(EMOTE_OPT_NAME)
+                                    .localized_desc(EMOTE_OPT_DESC)
+                            })
                     })
                     .create_sub_option(|grp| {
                         grp.kind(CommandOptionType::SubCommand)
@@ -94,6 +109,11 @@ impl AppCmd for GuildStatsCmd {
                                     .localized_name(USER_OPT_NAME)
                                     .localized_desc(USER_OPT_DESC)
                                     .required(true)
+                            })
+                            .create_sub_option(|sub| {
+                                sub.kind(CommandOptionType::String)
+                                    .localized_name(EMOTE_OPT_NAME)
+                                    .localized_desc(EMOTE_OPT_DESC)
                             })
                     })
             });
@@ -112,37 +132,9 @@ impl AppCmd for GuildStatsCmd {
     {
         let user = message_db_data.user().await?.unwrap_or_default();
         let guild_id = cmd.guild_id.ok_or(HandlerError::NotGuild)?;
-        let user_id_opt = cmd.data.resolved.users.keys().next();
-        let top_option = cmd
-            .data
-            .options
-            .get(0)
+        let user_id_opt = cmd.data.resolved.users.keys().next().cloned();
+        let kind = EmoteLogQuery::from_command_data(&cmd.data.options, Some(guild_id), user_id_opt)
             .ok_or(HandlerError::UnexpectedData)?;
-        let sub_option = top_option.options.get(0);
-        let kind = match (&top_option.name, sub_option.map(|o| &o.name)) {
-            (_t, _) if GUILD_SUB_NAME.any_eq(_t) => EmoteLogQuery::Guild(guild_id),
-            (_t, _) if GUILD_USER_SUB_NAME.any_eq(_t) => EmoteLogQuery::GuildUser((
-                guild_id,
-                *user_id_opt.ok_or(HandlerError::UnexpectedData)?,
-            )),
-            (_t, Some(_s))
-                if RECEIVED_GROUP_NAME.any_eq(_t) && RECEIVED_GUILD_SUB_NAME.any_eq(_s) =>
-            {
-                EmoteLogQuery::ReceivedGuild(guild_id)
-            }
-            (_t, Some(_s))
-                if RECEIVED_GROUP_NAME.any_eq(_t) && RECEIVED_GUILD_USER_SUB_NAME.any_eq(_s) =>
-            {
-                EmoteLogQuery::ReceivedGuildUser((
-                    guild_id,
-                    *user_id_opt.ok_or(HandlerError::UnexpectedData)?,
-                ))
-            }
-            _ => {
-                error!("could not parse guild stat kind");
-                return Err(HandlerError::UnexpectedData);
-            }
-        };
         debug!("guild stat kind: {:?}", kind);
 
         let count = handler.db.fetch_emote_log_count(&kind).await?;

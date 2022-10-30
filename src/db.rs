@@ -5,7 +5,7 @@ use std::borrow::Borrow;
 
 use futures::{stream, StreamExt, TryStreamExt};
 use serenity::model::prelude::{GuildId, UserId};
-use sqlx::{PgPool, QueryBuilder};
+use sqlx::{PgPool, QueryBuilder, Row};
 use tracing::*;
 
 use crate::{commands::stats::EmoteLogQuery, HandlerError};
@@ -228,19 +228,6 @@ impl Db {
             query_builder.build().execute(&self.0).await?;
         }
 
-        // sqlx::query!(
-        //     "
-        //     INSERT INTO emote_log_tags (emote_log_id, user_id)
-        //     SELECT DISTINCT $1::bigint, users.user_id
-        //     FROM users
-        //     WHERE users.discord_id IN ($2)
-        //     ",
-        //     emote_log_id,
-        //     target_discord_ids.map(|id| id.0).collect::<Vec<_>>()
-        // )
-        // .execute(&self.0)
-        // .await?;
-
         Ok(())
     }
 
@@ -273,94 +260,104 @@ impl Db {
         &self,
         kind: impl Borrow<EmoteLogQuery>,
     ) -> Result<i64, HandlerError> {
-        let res = match kind.borrow() {
-            EmoteLogQuery::Guild(g) => {
-                sqlx::query!(
-                    "
-                    SELECT COUNT(*) FROM emote_logs
-                    JOIN guilds ON emote_logs.guild_id = guilds.guild_id
-                    WHERE guilds.discord_id = $1
-                    ",
-                    g.to_db_string()
-                )
-                .fetch_one(&self.0)
-                .await?
-                .count
+        let mut query_builder = QueryBuilder::new("SELECT COUNT(*) FROM emote_logs ");
+        match kind.borrow() {
+            EmoteLogQuery::Guild((g, em_opt)) => {
+                query_builder
+                    .push(
+                        "
+                        JOIN guilds ON emote_logs.guild_id = guilds.guild_id
+                        WHERE guilds.discord_id = ",
+                    )
+                    .push_bind(g.to_db_string());
+                if let Some(em) = em_opt {
+                    query_builder
+                        .push(" AND emote_logs.emote_id = ")
+                        .push_bind(em);
+                }
             }
-            EmoteLogQuery::GuildUser((g, u)) => {
-                sqlx::query!(
-                    "
-                    SELECT COUNT(*) FROM emote_logs
-                    JOIN guilds on emote_logs.guild_id = guilds.guild_id
-                    JOIN users on emote_logs.user_id = users.user_id
-                    WHERE guilds.discord_id = $1 AND users.discord_id = $2
-                    ",
-                    g.to_db_string(),
-                    u.to_db_string()
-                )
-                .fetch_one(&self.0)
-                .await?
-                .count
+            EmoteLogQuery::GuildUser((g, u, em_opt)) => {
+                query_builder
+                    .push(
+                        "
+                        JOIN guilds on emote_logs.guild_id = guilds.guild_id
+                        JOIN users on emote_logs.user_id = users.user_id
+                        WHERE guilds.discord_id = ",
+                    )
+                    .push_bind(g.to_db_string())
+                    .push(" AND users.discord_id = ")
+                    .push_bind(u.to_db_string());
+                if let Some(em) = em_opt {
+                    query_builder
+                        .push(" AND emote_logs.emote_id = ")
+                        .push_bind(em);
+                }
             }
-            EmoteLogQuery::User(u) => {
-                sqlx::query!(
-                    "
-                    SELECT COUNT(*) FROM emote_logs
-                    JOIN users on emote_logs.user_id = users.user_id
-                    WHERE users.discord_id = $1
-                    ",
-                    u.to_db_string()
-                )
-                .fetch_one(&self.0)
-                .await?
-                .count
+            EmoteLogQuery::User((u, em_opt)) => {
+                query_builder
+                    .push(
+                        "
+                        JOIN users on emote_logs.user_id = users.user_id
+                        WHERE users.discord_id = ",
+                    )
+                    .push_bind(u.to_db_string());
+                if let Some(em) = em_opt {
+                    query_builder
+                        .push(" AND emote_logs.emote_id = ")
+                        .push_bind(em);
+                }
             }
-            EmoteLogQuery::ReceivedGuild(g) => {
-                sqlx::query!(
-                    "
-                    SELECT COUNT(*) FROM emote_log_tags
-                    JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id
-                    JOIN guilds on emote_logs.guild_id = guilds.guild_id
-                    WHERE guilds.discord_id = $1
-                    ",
-                    g.to_db_string()
-                )
-                .fetch_one(&self.0)
-                .await?
-                .count
+            EmoteLogQuery::ReceivedGuild((g, em_opt)) => {
+                query_builder
+                    .push(
+                        "
+                        JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id
+                        JOIN guilds on emote_logs.guild_id = guilds.guild_id
+                        WHERE guilds.discord_id = ",
+                    )
+                    .push_bind(g.to_db_string());
+                if let Some(em) = em_opt {
+                    query_builder
+                        .push(" AND emote_logs.emote_id = ")
+                        .push_bind(em);
+                }
             }
-            EmoteLogQuery::ReceivedGuildUser((g, u)) => {
-                sqlx::query!(
-                    "
-                    SELECT COUNT(*) FROM emote_log_tags
-                    JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id
-                    JOIN guilds on emote_logs.guild_id = guilds.guild_id
-                    JOIN users on emote_logs.user_id = users.user_id
-                    WHERE guilds.discord_id = $1 AND users.discord_id = $2
-                    ",
-                    g.to_db_string(),
-                    u.to_db_string()
-                )
-                .fetch_one(&self.0)
-                .await?
-                .count
+            EmoteLogQuery::ReceivedGuildUser((g, u, em_opt)) => {
+                query_builder
+                    .push(
+                        "
+                        JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id
+                        JOIN guilds on emote_logs.guild_id = guilds.guild_id
+                        JOIN users on emote_logs.user_id = users.user_id
+                        WHERE guilds.discord_id = ",
+                    )
+                    .push_bind(g.to_db_string())
+                    .push(" AND users.user_id = ")
+                    .push_bind(u.to_db_string());
+                if let Some(em) = em_opt {
+                    query_builder
+                        .push(" AND emote_logs.emote_id = ")
+                        .push_bind(em);
+                }
             }
-            EmoteLogQuery::ReceivedUser(u) => {
-                sqlx::query!(
-                    "
-                    SELECT COUNT(*) FROM emote_log_tags
-                    JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id
-                    JOIN users on emote_logs.user_id = users.user_id
-                    WHERE users.discord_id = $1
-                    ",
-                    u.to_db_string()
-                )
-                .fetch_one(&self.0)
-                .await?
-                .count
+            EmoteLogQuery::ReceivedUser((u, em_opt)) => {
+                query_builder
+                    .push(
+                        "
+                        JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id
+                        JOIN users on emote_logs.user_id = users.user_id
+                        WHERE users.discord_id = ",
+                    )
+                    .push_bind(u.to_db_string());
+                if let Some(em) = em_opt {
+                    query_builder
+                        .push(" AND emote_logs.emote_id = ")
+                        .push_bind(em);
+                }
             }
         }
-        .ok_or(HandlerError::CountNone)?;
+
+        let res: i64 = query_builder.build().fetch_one(&self.0).await?.get(0);
         debug!("count for {:?}: {}", kind.borrow(), res);
 
         Ok(res)

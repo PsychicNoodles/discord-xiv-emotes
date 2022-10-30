@@ -1,13 +1,20 @@
 //! Shared data between global and guild versions of the stats command
 
 use serenity::{
-    model::prelude::{GuildId, UserId},
-    prelude::Mentionable,
+    model::prelude::{interaction::application_command::CommandDataOption, GuildId, UserId},
+    utils::MessageBuilder,
 };
+use tracing::*;
 
 use crate::{
+    commands::guild::stats::{RECEIVED_GUILD_SUB_NAME, RECEIVED_GUILD_USER_SUB_NAME},
     db::models::{DbLanguage, DbUser},
     util::LocalizedString,
+};
+
+use super::{
+    global::stats::{RECEIVED_USER_SUB_NAME, USER_SUB_NAME},
+    guild::stats::{GUILD_SUB_NAME, GUILD_USER_SUB_NAME},
 };
 pub const NAME: LocalizedString = LocalizedString {
     en: "stats",
@@ -23,7 +30,7 @@ pub const USER_OPT_NAME: LocalizedString = LocalizedString {
 };
 pub const USER_OPT_DESC: LocalizedString = LocalizedString {
     en: "User to investigate",
-    ja: "検査するユーザー",
+    ja: "ユーザーの絞り込み",
 };
 pub const RECEIVED_GROUP_NAME: LocalizedString = LocalizedString {
     en: "received",
@@ -33,15 +40,23 @@ pub const RECEIVED_GROUP_DESC: LocalizedString = LocalizedString {
     en: "Message statistics by targets received",
     ja: "ターゲット受信される側の使用統計",
 };
+pub const EMOTE_OPT_NAME: LocalizedString = LocalizedString {
+    en: "emote",
+    ja: "エモート",
+};
+pub const EMOTE_OPT_DESC: LocalizedString = LocalizedString {
+    en: "Emote to filter by",
+    ja: "エモートの絞り込み",
+};
 
 #[derive(Debug, Clone)]
 pub enum EmoteLogQuery {
-    Guild(GuildId),
-    GuildUser((GuildId, UserId)),
-    User(UserId),
-    ReceivedGuild(GuildId),
-    ReceivedGuildUser((GuildId, UserId)),
-    ReceivedUser(UserId),
+    Guild((GuildId, Option<String>)),
+    GuildUser((GuildId, UserId, Option<String>)),
+    User((UserId, Option<String>)),
+    ReceivedGuild((GuildId, Option<String>)),
+    ReceivedGuildUser((GuildId, UserId, Option<String>)),
+    ReceivedUser((UserId, Option<String>)),
 }
 
 impl EmoteLogQuery {
@@ -53,82 +68,201 @@ impl EmoteLogQuery {
     }
 
     pub fn to_en_message(&self, count: i64) -> String {
+        let mut mb = MessageBuilder::new();
         match self {
-            EmoteLogQuery::Guild(_) => {
-                format!(
-                    "There have been {} emotes sent thus far in this guild!",
-                    count
-                )
+            EmoteLogQuery::Guild((_, em_opt)) => {
+                mb.push("There have been ").push(count);
+                if let Some(em) = em_opt {
+                    mb.push(" ").push_quote(em).push("s");
+                }
+                mb.push(" sent thus far in this guild!").build()
             }
-            EmoteLogQuery::GuildUser((_, u)) => {
-                format!(
-                    "There have been {} emotes sent by {} thus far in this guild!",
-                    count,
-                    u.mention()
-                )
+            EmoteLogQuery::GuildUser((_, u, em_opt)) => {
+                mb.push("There have been ").push(count);
+                if let Some(em) = em_opt {
+                    mb.push(" ").push_quote(em).push("s");
+                }
+                mb.push(" sent by ")
+                    .push(u)
+                    .push(" thus far in this guild!")
+                    .build()
             }
-            EmoteLogQuery::User(u) => {
-                format!(
-                    "There have been {} emotes sent by {} thus far!",
-                    count,
-                    u.mention()
-                )
+            EmoteLogQuery::User((u, em_opt)) => {
+                mb.push("There have been ").push(count);
+                if let Some(em) = em_opt {
+                    mb.push(" ").push_quote(em).push("s");
+                }
+                mb.push(" sent by ").push(u).push(" thus far!").build()
             }
-            EmoteLogQuery::ReceivedGuild(_) => {
-                format!(
-                    "There have been {} emotes received thus far in this guild!",
-                    count
-                )
+            EmoteLogQuery::ReceivedGuild((_, em_opt)) => {
+                mb.push("There have been ").push(count);
+                if let Some(em) = em_opt {
+                    mb.push(" ").push_quote(em).push("s");
+                }
+                mb.push(" received thus far in this guild!").build()
             }
-            EmoteLogQuery::ReceivedGuildUser((_, u)) => {
-                format!(
-                    "There have been {} emotes received by {} thus far in this guild!",
-                    count,
-                    u.mention()
-                )
+            EmoteLogQuery::ReceivedGuildUser((_, u, em_opt)) => {
+                mb.push("There have been ").push(count);
+                if let Some(em) = em_opt {
+                    mb.push(" ").push_quote(em).push("s");
+                }
+                mb.push(" received by ")
+                    .push(u)
+                    .push(" thus far in this guild!")
+                    .build()
             }
-            EmoteLogQuery::ReceivedUser(u) => {
-                format!(
-                    "There have been {} emotes received by {} thus far!",
-                    count,
-                    u.mention()
-                )
+            EmoteLogQuery::ReceivedUser((u, em_opt)) => {
+                mb.push("There have been ").push(count);
+                if let Some(em) = em_opt {
+                    mb.push(" ").push_quote(em).push("s");
+                }
+                mb.push(" received by ").push(u).push(" thus far!").build()
             }
         }
     }
 
     pub fn to_ja_message(&self, count: i64) -> String {
+        let mut mb = MessageBuilder::new();
         match self {
-            EmoteLogQuery::Guild(_) => {
-                format!(
-                    "今までこのサーバーで{}件のエモートが送信されています！",
-                    count
-                )
+            EmoteLogQuery::Guild((_, em_opt)) => {
+                mb.push("今までこのサーバーで").push(count).push("件の");
+                if let Some(em) = em_opt {
+                    mb.push_quote(em);
+                } else {
+                    mb.push("エモート");
+                }
+                mb.push("が送信されています！").build()
             }
-            EmoteLogQuery::GuildUser((_, u)) => {
-                format!(
-                    "今までこのサーバーで{}が{}件のエモートを送信されています！",
-                    u, count
-                )
+            EmoteLogQuery::GuildUser((_, u, em_opt)) => {
+                mb.push("今までこのサーバーで")
+                    .push(u)
+                    .push("が")
+                    .push(count)
+                    .push("件の");
+                if let Some(em) = em_opt {
+                    mb.push_quote(em);
+                } else {
+                    mb.push("エモート");
+                }
+                mb.push("を送信されています！").build()
             }
-            EmoteLogQuery::User(u) => {
-                format!("今まで{}が{}件のエモートを送信されています！", u, count)
+            EmoteLogQuery::User((u, em_opt)) => {
+                mb.push("今まで")
+                    .push(u)
+                    .push("が")
+                    .push(count)
+                    .push("件の");
+                if let Some(em) = em_opt {
+                    mb.push_quote(em);
+                } else {
+                    mb.push("エモート");
+                }
+                mb.push("を送信されています！").build()
             }
-            EmoteLogQuery::ReceivedGuild(_) => {
-                format!(
-                    "今までこのサーバーで{}件のエモートが受信されています！",
-                    count
-                )
+            EmoteLogQuery::ReceivedGuild((_, em_opt)) => {
+                mb.push("今までこのサーバーで").push(count).push("件の");
+                if let Some(em) = em_opt {
+                    mb.push_quote(em);
+                } else {
+                    mb.push("エモート");
+                }
+                mb.push("が受信されています！").build()
             }
-            EmoteLogQuery::ReceivedGuildUser((_, u)) => {
-                format!(
-                    "今までこのサーバーで{}が{}件のエモートを受信されています！",
-                    u, count
-                )
+            EmoteLogQuery::ReceivedGuildUser((_, u, em_opt)) => {
+                mb.push("今までこのサーバーで")
+                    .push(u)
+                    .push("が")
+                    .push(count)
+                    .push("件の");
+                if let Some(em) = em_opt {
+                    mb.push_quote(em);
+                } else {
+                    mb.push("エモート");
+                }
+                mb.push("を受信されています！").build()
             }
-            EmoteLogQuery::ReceivedUser(u) => {
-                format!("今まで{}が{}件のエモートを受信されています！", u, count)
+            EmoteLogQuery::ReceivedUser((u, em_opt)) => {
+                mb.push("今まで")
+                    .push(u)
+                    .push("が")
+                    .push(count)
+                    .push("件の");
+                if let Some(em) = em_opt {
+                    mb.push_quote(em);
+                } else {
+                    mb.push("エモート");
+                }
+                mb.push("を受信されています！").build()
             }
+        }
+    }
+
+    pub fn from_command_data(
+        options: &[CommandDataOption],
+        guild_id_opt: Option<GuildId>,
+        user_id_opt: Option<UserId>,
+    ) -> Option<EmoteLogQuery> {
+        fn get_emote_opt(opt: &CommandDataOption, ind: usize) -> Option<String> {
+            // lifetimes in nested Options can get kinda ugly...
+            match opt.options.get(ind).map(|o| &o.value) {
+                Some(Some(v)) => v.as_str().map(ToString::to_string),
+                _ => None,
+            }
+        }
+
+        if let Some(top) = &options.get(0) {
+            match (&top.name, guild_id_opt, user_id_opt) {
+                // guild
+                (_s, Some(guild_id), _) if GUILD_SUB_NAME.any_eq(_s) => {
+                    Some(EmoteLogQuery::Guild((guild_id, get_emote_opt(top, 0))))
+                }
+                (_s, Some(guild_id), Some(user_id)) if GUILD_USER_SUB_NAME.any_eq(_s) => Some(
+                    EmoteLogQuery::GuildUser((guild_id, user_id, get_emote_opt(top, 1))),
+                ),
+                // global
+                (_s, _, Some(user_id)) if USER_SUB_NAME.any_eq(_s) => {
+                    Some(EmoteLogQuery::User((user_id, get_emote_opt(top, 0))))
+                }
+                // received subcommand group
+                // everything shifted over, so re-match on guild_id_opt and user_id_opt
+                (_s, _, _) if RECEIVED_GROUP_NAME.any_eq(_s) => {
+                    if let Some(received) = top.options.get(0) {
+                        match (&received.name, guild_id_opt, user_id_opt) {
+                            // guild
+                            (_s, Some(guild_id), _) if RECEIVED_GUILD_SUB_NAME.any_eq(_s) => {
+                                Some(EmoteLogQuery::ReceivedGuild((
+                                    guild_id,
+                                    get_emote_opt(received, 0),
+                                )))
+                            }
+                            (_s, Some(guild_id), Some(user_id))
+                                if RECEIVED_GUILD_USER_SUB_NAME.any_eq(_s) =>
+                            {
+                                Some(EmoteLogQuery::ReceivedGuildUser((
+                                    guild_id,
+                                    user_id,
+                                    get_emote_opt(received, 1),
+                                )))
+                            }
+                            // global
+                            (_s, _, Some(user_id)) if RECEIVED_USER_SUB_NAME.any_eq(_s) => Some(
+                                EmoteLogQuery::ReceivedUser((user_id, get_emote_opt(received, 0))),
+                            ),
+                            _ => {
+                                error!("subcommand group received had invalid sub-values");
+                                None
+                            }
+                        }
+                    } else {
+                        error!("subcommand group received had no subcommand values");
+                        None
+                    }
+                }
+                _ => None,
+            }
+        } else {
+            error!("no top level command data");
+            None
         }
     }
 }

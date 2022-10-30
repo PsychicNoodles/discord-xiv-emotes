@@ -54,6 +54,11 @@ impl AppCmd for GlobalStatsCmd {
                             .localized_desc(USER_OPT_DESC)
                             .required(true)
                     })
+                    .create_sub_option(|sub| {
+                        sub.kind(CommandOptionType::String)
+                            .localized_name(EMOTE_OPT_NAME)
+                            .localized_desc(EMOTE_OPT_DESC)
+                    })
             })
             .create_option(|opt| {
                 opt.kind(CommandOptionType::SubCommandGroup)
@@ -68,6 +73,11 @@ impl AppCmd for GlobalStatsCmd {
                                     .localized_name(USER_OPT_NAME)
                                     .localized_desc(USER_OPT_DESC)
                                     .required(true)
+                            })
+                            .create_sub_option(|sub| {
+                                sub.kind(CommandOptionType::String)
+                                    .localized_name(EMOTE_OPT_NAME)
+                                    .localized_desc(EMOTE_OPT_DESC)
                             })
                     })
             });
@@ -85,27 +95,9 @@ impl AppCmd for GlobalStatsCmd {
         Self: Sized,
     {
         let user = message_db_data.user().await?.unwrap_or_default();
-        let user_id_opt = cmd.data.resolved.users.keys().next();
-        let top_option = cmd
-            .data
-            .options
-            .get(0)
+        let user_id_opt = cmd.data.resolved.users.keys().next().cloned();
+        let kind = EmoteLogQuery::from_command_data(&cmd.data.options, None, user_id_opt)
             .ok_or(HandlerError::UnexpectedData)?;
-        let sub_option = top_option.options.get(0);
-        let kind = match (&top_option.name, sub_option.map(|o| &o.name)) {
-            (_s, _) if USER_SUB_NAME.any_eq(_s) => {
-                EmoteLogQuery::User(*user_id_opt.ok_or(HandlerError::UnexpectedData)?)
-            }
-            (_s, Some(_t))
-                if RECEIVED_GROUP_NAME.any_eq(_s) && RECEIVED_USER_SUB_NAME.any_eq(_t) =>
-            {
-                EmoteLogQuery::ReceivedUser(*user_id_opt.ok_or(HandlerError::UnexpectedData)?)
-            }
-            _ => {
-                error!("could not parse global stat kind");
-                return Err(HandlerError::UnexpectedData);
-            }
-        };
         debug!("global stat kind: {:?}", kind);
 
         let count = handler.db.fetch_emote_log_count(&kind).await?;
