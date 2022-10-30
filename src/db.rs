@@ -2,11 +2,13 @@ pub mod models;
 pub mod util;
 
 use std::borrow::Borrow;
+use std::sync::Arc;
 
 use futures::{stream, StreamExt, TryStreamExt};
 use serenity::model::prelude::{GuildId, UserId};
 use sqlx::{PgPool, QueryBuilder, Row};
 use tracing::*;
+use xiv_emote_parser::repository::EmoteData;
 
 use crate::{commands::stats::EmoteLogQuery, HandlerError};
 
@@ -256,21 +258,32 @@ impl Db {
         Ok(())
     }
 
+    async fn try_add_emote_condition<'a>(
+        &self,
+        query_builder: &mut QueryBuilder<'a, sqlx::Postgres>,
+        em_opt: &'a Option<Arc<EmoteData>>,
+    ) -> Result<(), HandlerError> {
+        if let Some(em) = em_opt {
+            let emote_id = sqlx::query!(
+                "
+                SELECT emote_id FROM emotes WHERE xiv_id = $1
+                ",
+                em.id as i32
+            )
+            .fetch_one(&self.0)
+            .await?
+            .emote_id;
+            query_builder
+                .push(" AND emote_logs.emote_id = ")
+                .push_bind(emote_id);
+        }
+        Ok(())
+    }
+
     pub async fn fetch_emote_log_count(
         &self,
         kind: impl Borrow<EmoteLogQuery>,
     ) -> Result<i64, HandlerError> {
-        fn try_add_emote_condition<'a>(
-            query_builder: &mut QueryBuilder<'a, sqlx::Postgres>,
-            em_opt: &'a Option<i32>,
-        ) {
-            if let Some(em) = em_opt {
-                query_builder
-                    .push(" AND emote_logs.xiv_id = ")
-                    .push_bind(em);
-            }
-        }
-
         let mut query_builder = QueryBuilder::new("SELECT COUNT(*) FROM emote_logs ");
         match kind.borrow() {
             EmoteLogQuery::Guild((g, em_opt)) => {
@@ -281,7 +294,8 @@ impl Db {
                         WHERE guilds.discord_id = ",
                     )
                     .push_bind(g.to_db_string());
-                try_add_emote_condition(&mut query_builder, em_opt);
+                self.try_add_emote_condition(&mut query_builder, em_opt)
+                    .await?;
             }
             EmoteLogQuery::GuildUser((g, u, em_opt)) => {
                 query_builder
@@ -294,7 +308,8 @@ impl Db {
                     .push_bind(g.to_db_string())
                     .push(" AND users.discord_id = ")
                     .push_bind(u.to_db_string());
-                try_add_emote_condition(&mut query_builder, em_opt);
+                self.try_add_emote_condition(&mut query_builder, em_opt)
+                    .await?;
             }
             EmoteLogQuery::User((u, em_opt)) => {
                 query_builder
@@ -304,7 +319,8 @@ impl Db {
                         WHERE users.discord_id = ",
                     )
                     .push_bind(u.to_db_string());
-                try_add_emote_condition(&mut query_builder, em_opt);
+                self.try_add_emote_condition(&mut query_builder, em_opt)
+                    .await?;
             }
             EmoteLogQuery::ReceivedGuild((g, em_opt)) => {
                 query_builder
@@ -315,7 +331,8 @@ impl Db {
                         WHERE guilds.discord_id = ",
                     )
                     .push_bind(g.to_db_string());
-                try_add_emote_condition(&mut query_builder, em_opt);
+                self.try_add_emote_condition(&mut query_builder, em_opt)
+                    .await?;
             }
             EmoteLogQuery::ReceivedGuildUser((g, u, em_opt)) => {
                 query_builder
@@ -329,7 +346,8 @@ impl Db {
                     .push_bind(g.to_db_string())
                     .push(" AND users.user_id = ")
                     .push_bind(u.to_db_string());
-                try_add_emote_condition(&mut query_builder, em_opt);
+                self.try_add_emote_condition(&mut query_builder, em_opt)
+                    .await?;
             }
             EmoteLogQuery::ReceivedUser((u, em_opt)) => {
                 query_builder
@@ -340,7 +358,8 @@ impl Db {
                         WHERE users.discord_id = ",
                     )
                     .push_bind(u.to_db_string());
-                try_add_emote_condition(&mut query_builder, em_opt);
+                self.try_add_emote_condition(&mut query_builder, em_opt)
+                    .await?;
             }
         }
 
