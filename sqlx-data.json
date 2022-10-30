@@ -1,25 +1,24 @@
 {
   "db": "PostgreSQL",
-  "3ffd61e0a9ad4ce58fdc1b56ad15ab32c44e58b8b03364cadc6d9be31831b0bf": {
+  "06b630aeb3b61c63e5f10caec457a966d66b3553715b3fe157b186aa45958b49": {
     "describe": {
       "columns": [
         {
-          "name": "count",
+          "name": "emote_id",
           "ordinal": 0,
           "type_info": "Int8"
         }
       ],
       "nullable": [
-        null
+        false
       ],
       "parameters": {
         "Left": [
-          "Bpchar",
-          "Bpchar"
+          "Int4"
         ]
       }
     },
-    "query": "\n                    SELECT COUNT(*) FROM emote_log_tags\n                    JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id\n                    JOIN guilds on emote_logs.guild_id = guilds.guild_id\n                    JOIN users on emote_logs.user_id = users.user_id\n                    WHERE guilds.discord_id = $1 AND users.discord_id = $2\n                    "
+    "query": "\n                SELECT emote_id FROM emotes WHERE xiv_id = $1\n                "
   },
   "40e0b7685ef7c91b516677b7626fa2b27747f3e1ec951aa6d06403d95d4a4941": {
     "describe": {
@@ -84,27 +83,6 @@
     },
     "query": "\n            INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, false, $4, $4)\n            ON CONFLICT (discord_id) DO UPDATE SET update_tm = $4\n            RETURNING user_id\n            "
   },
-  "5e7d1aedc5d8bba961b710d2e65be0f4877010289946f85dcd017ed1464c58a7": {
-    "describe": {
-      "columns": [
-        {
-          "name": "count",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Bpchar",
-          "Bpchar"
-        ]
-      }
-    },
-    "query": "\n                    SELECT COUNT(*) FROM emote_logs\n                    JOIN guilds on emote_logs.guild_id = guilds.guild_id\n                    JOIN users on emote_logs.user_id = users.user_id\n                    WHERE guilds.discord_id = $1 AND users.discord_id = $2\n                    "
-  },
   "6c679452c9c0fb5e7f2b71fd2cbf5484f60371f7f4fad8fe4bbf432a3ac08415": {
     "describe": {
       "columns": [],
@@ -120,46 +98,6 @@
     },
     "query": "\n            INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, true, $4, $4)\n            ON CONFLICT (discord_id) DO UPDATE\n            SET discord_id = $1, language = $2, gender = $3, is_set_flg = true, update_tm = $4\n            "
   },
-  "6c9b960bc8d161a1033b011d873ab3fb05d99089c34ae5add5d680f967b45c72": {
-    "describe": {
-      "columns": [
-        {
-          "name": "count",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Bpchar"
-        ]
-      }
-    },
-    "query": "\n                    SELECT COUNT(*) FROM emote_logs\n                    JOIN users on emote_logs.user_id = users.user_id\n                    WHERE users.discord_id = $1\n                    "
-  },
-  "ab1e3335bfe918a95466bbf9eb57fc1377b0cf48697b4ee84fc85085d8f9fffa": {
-    "describe": {
-      "columns": [
-        {
-          "name": "count",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Bpchar"
-        ]
-      }
-    },
-    "query": "\n                    SELECT COUNT(*) FROM emote_logs\n                    JOIN guilds ON emote_logs.guild_id = guilds.guild_id\n                    WHERE guilds.discord_id = $1\n                    "
-  },
   "b786d51bc35fb8dd99da1c2baa36ef8729e7f7d0581579af503b897b923c8891": {
     "describe": {
       "columns": [],
@@ -173,26 +111,6 @@
       }
     },
     "query": "\n                INSERT INTO emotes (xiv_id, command, insert_tm, update_tm)\n                VALUES ($1, $2, $3, $3)\n                ON CONFLICT (xiv_id) DO UPDATE SET update_tm = $3\n                "
-  },
-  "c1328d30b8d573760826d30dc340f5b5a0a881df2dda60cdb86f564ca7d2262f": {
-    "describe": {
-      "columns": [
-        {
-          "name": "count",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Bpchar"
-        ]
-      }
-    },
-    "query": "\n                    SELECT COUNT(*) FROM emote_log_tags\n                    JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id\n                    JOIN users on emote_logs.user_id = users.user_id\n                    WHERE users.discord_id = $1\n                    "
   },
   "c1460d1af5bd0236b8a0324c7b1a19f2b209312c5f5efcb0cf577f19560344c0": {
     "describe": {
@@ -322,25 +240,5 @@
       }
     },
     "query": "\n            SELECT\n                discord_id,\n                language as \"language: DbLanguage\",\n                gender as \"gender: DbGender\",\n                prefix,\n                is_set_flg,\n                insert_tm,\n                update_tm\n            FROM guilds\n            WHERE discord_id = $1\n            "
-  },
-  "fe76b9291b8c604650e17f5063120eeb39ec51e50497d2f1aeb267cfc608f12b": {
-    "describe": {
-      "columns": [
-        {
-          "name": "count",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Bpchar"
-        ]
-      }
-    },
-    "query": "\n                    SELECT COUNT(*) FROM emote_log_tags\n                    JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id\n                    JOIN guilds on emote_logs.guild_id = guilds.guild_id\n                    WHERE guilds.discord_id = $1\n                    "
   }
 }
