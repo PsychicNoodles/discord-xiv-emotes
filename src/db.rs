@@ -281,7 +281,7 @@ impl Db {
                     JOIN guilds ON emote_logs.guild_id = guilds.guild_id
                     WHERE guilds.discord_id = $1
                     ",
-                    g.to_string()
+                    g.to_db_string()
                 )
                 .fetch_one(&self.0)
                 .await?
@@ -295,8 +295,8 @@ impl Db {
                     JOIN users on emote_logs.user_id = users.user_id
                     WHERE guilds.discord_id = $1 AND users.discord_id = $2
                     ",
-                    g.to_string(),
-                    u.to_string()
+                    g.to_db_string(),
+                    u.to_db_string()
                 )
                 .fetch_one(&self.0)
                 .await?
@@ -309,7 +309,7 @@ impl Db {
                     JOIN users on emote_logs.user_id = users.user_id
                     WHERE users.discord_id = $1
                     ",
-                    u.to_string()
+                    u.to_db_string()
                 )
                 .fetch_one(&self.0)
                 .await?
@@ -323,7 +323,7 @@ impl Db {
                     JOIN guilds on emote_logs.guild_id = guilds.guild_id
                     WHERE guilds.discord_id = $1
                     ",
-                    g.to_string()
+                    g.to_db_string()
                 )
                 .fetch_one(&self.0)
                 .await?
@@ -338,8 +338,8 @@ impl Db {
                     JOIN users on emote_logs.user_id = users.user_id
                     WHERE guilds.discord_id = $1 AND users.discord_id = $2
                     ",
-                    g.to_string(),
-                    u.to_string()
+                    g.to_db_string(),
+                    u.to_db_string()
                 )
                 .fetch_one(&self.0)
                 .await?
@@ -353,7 +353,7 @@ impl Db {
                     JOIN users on emote_logs.user_id = users.user_id
                     WHERE users.discord_id = $1
                     ",
-                    u.to_string()
+                    u.to_db_string()
                 )
                 .fetch_one(&self.0)
                 .await?
