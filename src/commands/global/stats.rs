@@ -96,8 +96,13 @@ impl AppCmd for GlobalStatsCmd {
     {
         let user = message_db_data.user().await?.unwrap_or_default();
         let user_id_opt = cmd.data.resolved.users.keys().next().cloned();
-        let kind = EmoteLogQuery::from_command_data(&cmd.data.options, None, user_id_opt)
-            .ok_or(HandlerError::UnexpectedData)?;
+        let kind = EmoteLogQuery::from_command_data(
+            &handler.log_message_repo,
+            &cmd.data.options,
+            None,
+            user_id_opt,
+        )
+        .ok_or(HandlerError::UnexpectedData)?;
         debug!("global stat kind: {:?}", kind);
 
         let count = handler.db.fetch_emote_log_count(&kind).await?;

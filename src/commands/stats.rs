@@ -5,6 +5,7 @@ use serenity::{
     utils::MessageBuilder,
 };
 use tracing::*;
+use xiv_emote_parser::repository::LogMessageRepository;
 
 use crate::{
     commands::guild::stats::{RECEIVED_GUILD_SUB_NAME, RECEIVED_GUILD_USER_SUB_NAME},
@@ -51,12 +52,12 @@ pub const EMOTE_OPT_DESC: LocalizedString = LocalizedString {
 
 #[derive(Debug, Clone)]
 pub enum EmoteLogQuery {
-    Guild((GuildId, Option<String>)),
-    GuildUser((GuildId, UserId, Option<String>)),
-    User((UserId, Option<String>)),
-    ReceivedGuild((GuildId, Option<String>)),
-    ReceivedGuildUser((GuildId, UserId, Option<String>)),
-    ReceivedUser((UserId, Option<String>)),
+    Guild((GuildId, Option<i32>)),
+    GuildUser((GuildId, UserId, Option<i32>)),
+    User((UserId, Option<i32>)),
+    ReceivedGuild((GuildId, Option<i32>)),
+    ReceivedGuildUser((GuildId, UserId, Option<i32>)),
+    ReceivedUser((UserId, Option<i32>)),
 }
 
 impl EmoteLogQuery {
@@ -198,31 +199,43 @@ impl EmoteLogQuery {
     }
 
     pub fn from_command_data(
+        log_message_repo: &LogMessageRepository,
         options: &[CommandDataOption],
         guild_id_opt: Option<GuildId>,
         user_id_opt: Option<UserId>,
     ) -> Option<EmoteLogQuery> {
-        fn get_emote_opt(opt: &CommandDataOption, ind: usize) -> Option<String> {
+        fn get_emote_opt(
+            log_message_repo: &LogMessageRepository,
+            opt: &CommandDataOption,
+            ind: usize,
+        ) -> Option<i32> {
             // lifetimes in nested Options can get kinda ugly...
-            match opt.options.get(ind).map(|o| &o.value) {
+            let emote = match opt.options.get(ind).map(|o| &o.value) {
                 Some(Some(v)) => v.as_str().map(ToString::to_string),
                 _ => None,
-            }
+            };
+            // if there were any errors then they should've been thrown during setup...
+            emote.and_then(|em| log_message_repo.find_emote_id(&em).map(|i| i as i32))
         }
 
         if let Some(top) = &options.get(0) {
             match (&top.name, guild_id_opt, user_id_opt) {
                 // guild
-                (_s, Some(guild_id), _) if GUILD_SUB_NAME.any_eq(_s) => {
-                    Some(EmoteLogQuery::Guild((guild_id, get_emote_opt(top, 0))))
+                (_s, Some(guild_id), _) if GUILD_SUB_NAME.any_eq(_s) => Some(EmoteLogQuery::Guild(
+                    (guild_id, get_emote_opt(log_message_repo, top, 0)),
+                )),
+                (_s, Some(guild_id), Some(user_id)) if GUILD_USER_SUB_NAME.any_eq(_s) => {
+                    Some(EmoteLogQuery::GuildUser((
+                        guild_id,
+                        user_id,
+                        get_emote_opt(log_message_repo, top, 1),
+                    )))
                 }
-                (_s, Some(guild_id), Some(user_id)) if GUILD_USER_SUB_NAME.any_eq(_s) => Some(
-                    EmoteLogQuery::GuildUser((guild_id, user_id, get_emote_opt(top, 1))),
-                ),
                 // global
-                (_s, _, Some(user_id)) if USER_SUB_NAME.any_eq(_s) => {
-                    Some(EmoteLogQuery::User((user_id, get_emote_opt(top, 0))))
-                }
+                (_s, _, Some(user_id)) if USER_SUB_NAME.any_eq(_s) => Some(EmoteLogQuery::User((
+                    user_id,
+                    get_emote_opt(log_message_repo, top, 0),
+                ))),
                 // received subcommand group
                 // everything shifted over, so re-match on guild_id_opt and user_id_opt
                 (_s, _, _) if RECEIVED_GROUP_NAME.any_eq(_s) => {
@@ -232,7 +245,7 @@ impl EmoteLogQuery {
                             (_s, Some(guild_id), _) if RECEIVED_GUILD_SUB_NAME.any_eq(_s) => {
                                 Some(EmoteLogQuery::ReceivedGuild((
                                     guild_id,
-                                    get_emote_opt(received, 0),
+                                    get_emote_opt(log_message_repo, received, 0),
                                 )))
                             }
                             (_s, Some(guild_id), Some(user_id))
@@ -241,13 +254,16 @@ impl EmoteLogQuery {
                                 Some(EmoteLogQuery::ReceivedGuildUser((
                                     guild_id,
                                     user_id,
-                                    get_emote_opt(received, 1),
+                                    get_emote_opt(log_message_repo, received, 1),
                                 )))
                             }
                             // global
-                            (_s, _, Some(user_id)) if RECEIVED_USER_SUB_NAME.any_eq(_s) => Some(
-                                EmoteLogQuery::ReceivedUser((user_id, get_emote_opt(received, 0))),
-                            ),
+                            (_s, _, Some(user_id)) if RECEIVED_USER_SUB_NAME.any_eq(_s) => {
+                                Some(EmoteLogQuery::ReceivedUser((
+                                    user_id,
+                                    get_emote_opt(log_message_repo, received, 0),
+                                )))
+                            }
                             _ => {
                                 error!("subcommand group received had invalid sub-values");
                                 None

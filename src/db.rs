@@ -260,6 +260,17 @@ impl Db {
         &self,
         kind: impl Borrow<EmoteLogQuery>,
     ) -> Result<i64, HandlerError> {
+        fn try_add_emote_condition<'a>(
+            query_builder: &mut QueryBuilder<'a, sqlx::Postgres>,
+            em_opt: &'a Option<i32>,
+        ) {
+            if let Some(em) = em_opt {
+                query_builder
+                    .push(" AND emote_logs.xiv_id = ")
+                    .push_bind(em);
+            }
+        }
+
         let mut query_builder = QueryBuilder::new("SELECT COUNT(*) FROM emote_logs ");
         match kind.borrow() {
             EmoteLogQuery::Guild((g, em_opt)) => {
@@ -270,11 +281,7 @@ impl Db {
                         WHERE guilds.discord_id = ",
                     )
                     .push_bind(g.to_db_string());
-                if let Some(em) = em_opt {
-                    query_builder
-                        .push(" AND emote_logs.emote_id = ")
-                        .push_bind(em);
-                }
+                try_add_emote_condition(&mut query_builder, em_opt);
             }
             EmoteLogQuery::GuildUser((g, u, em_opt)) => {
                 query_builder
@@ -287,11 +294,7 @@ impl Db {
                     .push_bind(g.to_db_string())
                     .push(" AND users.discord_id = ")
                     .push_bind(u.to_db_string());
-                if let Some(em) = em_opt {
-                    query_builder
-                        .push(" AND emote_logs.emote_id = ")
-                        .push_bind(em);
-                }
+                try_add_emote_condition(&mut query_builder, em_opt);
             }
             EmoteLogQuery::User((u, em_opt)) => {
                 query_builder
@@ -301,11 +304,7 @@ impl Db {
                         WHERE users.discord_id = ",
                     )
                     .push_bind(u.to_db_string());
-                if let Some(em) = em_opt {
-                    query_builder
-                        .push(" AND emote_logs.emote_id = ")
-                        .push_bind(em);
-                }
+                try_add_emote_condition(&mut query_builder, em_opt);
             }
             EmoteLogQuery::ReceivedGuild((g, em_opt)) => {
                 query_builder
@@ -316,11 +315,7 @@ impl Db {
                         WHERE guilds.discord_id = ",
                     )
                     .push_bind(g.to_db_string());
-                if let Some(em) = em_opt {
-                    query_builder
-                        .push(" AND emote_logs.emote_id = ")
-                        .push_bind(em);
-                }
+                try_add_emote_condition(&mut query_builder, em_opt);
             }
             EmoteLogQuery::ReceivedGuildUser((g, u, em_opt)) => {
                 query_builder
@@ -334,11 +329,7 @@ impl Db {
                     .push_bind(g.to_db_string())
                     .push(" AND users.user_id = ")
                     .push_bind(u.to_db_string());
-                if let Some(em) = em_opt {
-                    query_builder
-                        .push(" AND emote_logs.emote_id = ")
-                        .push_bind(em);
-                }
+                try_add_emote_condition(&mut query_builder, em_opt);
             }
             EmoteLogQuery::ReceivedUser((u, em_opt)) => {
                 query_builder
@@ -349,11 +340,7 @@ impl Db {
                         WHERE users.discord_id = ",
                     )
                     .push_bind(u.to_db_string());
-                if let Some(em) = em_opt {
-                    query_builder
-                        .push(" AND emote_logs.emote_id = ")
-                        .push_bind(em);
-                }
+                try_add_emote_condition(&mut query_builder, em_opt);
             }
         }
 

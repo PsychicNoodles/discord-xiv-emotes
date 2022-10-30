@@ -133,8 +133,13 @@ impl AppCmd for GuildStatsCmd {
         let user = message_db_data.user().await?.unwrap_or_default();
         let guild_id = cmd.guild_id.ok_or(HandlerError::NotGuild)?;
         let user_id_opt = cmd.data.resolved.users.keys().next().cloned();
-        let kind = EmoteLogQuery::from_command_data(&cmd.data.options, Some(guild_id), user_id_opt)
-            .ok_or(HandlerError::UnexpectedData)?;
+        let kind = EmoteLogQuery::from_command_data(
+            &handler.log_message_repo,
+            &cmd.data.options,
+            Some(guild_id),
+            user_id_opt,
+        )
+        .ok_or(HandlerError::UnexpectedData)?;
         debug!("guild stat kind: {:?}", kind);
 
         let count = handler.db.fetch_emote_log_count(&kind).await?;
