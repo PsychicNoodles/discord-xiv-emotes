@@ -103,6 +103,8 @@ impl EmoteLogQuery {
                 mb.push("There have been ").push(count).push(" ");
                 if let Some(em) = em_opt {
                     mb.push_mono(&em.name);
+                } else {
+                    mb.push("emote");
                 }
                 mb.push("s sent by ").push(u).push(" thus far!").build()
             }
