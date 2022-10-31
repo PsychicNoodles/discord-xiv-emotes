@@ -95,7 +95,7 @@ impl EmoteLogQuery {
                     mb.push("emote");
                 }
                 mb.push("s sent by ")
-                    .push(u)
+                    .mention(u)
                     .push(" thus far in this guild!")
                     .build()
             }
@@ -106,7 +106,7 @@ impl EmoteLogQuery {
                 } else {
                     mb.push("emote");
                 }
-                mb.push("s sent by ").push(u).push(" thus far!").build()
+                mb.push("s sent by ").mention(u).push(" thus far!").build()
             }
             EmoteLogQuery::ReceivedGuild((_, em_opt)) => {
                 mb.push("There have been ").push(count).push(" ");
@@ -125,7 +125,7 @@ impl EmoteLogQuery {
                     mb.push("emote");
                 }
                 mb.push("s received by ")
-                    .push(u)
+                    .mention(u)
                     .push(" thus far in this guild!")
                     .build()
             }
@@ -136,7 +136,10 @@ impl EmoteLogQuery {
                 } else {
                     mb.push("emote");
                 }
-                mb.push("s received by ").push(u).push(" thus far!").build()
+                mb.push("s received by ")
+                    .mention(u)
+                    .push(" thus far!")
+                    .build()
             }
         }
     }
@@ -155,7 +158,7 @@ impl EmoteLogQuery {
             }
             EmoteLogQuery::GuildUser((_, u, em_opt)) => {
                 mb.push("今までこのサーバーで")
-                    .push(u)
+                    .mention(u)
                     .push("が")
                     .push(count)
                     .push("件の");
@@ -168,7 +171,7 @@ impl EmoteLogQuery {
             }
             EmoteLogQuery::User((u, em_opt)) => {
                 mb.push("今まで")
-                    .push(u)
+                    .mention(u)
                     .push("が")
                     .push(count)
                     .push("件の");
@@ -190,7 +193,7 @@ impl EmoteLogQuery {
             }
             EmoteLogQuery::ReceivedGuildUser((_, u, em_opt)) => {
                 mb.push("今までこのサーバーで")
-                    .push(u)
+                    .mention(u)
                     .push("が")
                     .push(count)
                     .push("件の");
@@ -203,7 +206,7 @@ impl EmoteLogQuery {
             }
             EmoteLogQuery::ReceivedUser((u, em_opt)) => {
                 mb.push("今まで")
-                    .push(u)
+                    .mention(u)
                     .push("が")
                     .push(count)
                     .push("件の");

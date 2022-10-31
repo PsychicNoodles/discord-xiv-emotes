@@ -354,12 +354,13 @@ impl Db {
         &self,
         kind: impl Borrow<EmoteLogQuery> + Debug,
     ) -> Result<i64, HandlerError> {
-        let mut query_builder = QueryBuilder::new("SELECT COUNT(*) FROM emote_logs ");
+        let mut query_builder = QueryBuilder::new("");
         match kind.borrow() {
             EmoteLogQuery::Guild((g, em_opt)) => {
                 query_builder
                     .push(
                         "
+                        SELECT COUNT(*) FROM emote_logs
                         JOIN guilds ON emote_logs.guild_id = guilds.guild_id
                         WHERE guilds.discord_id = ",
                     )
@@ -371,6 +372,7 @@ impl Db {
                 query_builder
                     .push(
                         "
+                        SELECT COUNT(*) FROM emote_logs
                         JOIN guilds on emote_logs.guild_id = guilds.guild_id
                         JOIN users on emote_logs.user_id = users.user_id
                         WHERE guilds.discord_id = ",
@@ -385,6 +387,7 @@ impl Db {
                 query_builder
                     .push(
                         "
+                        SELECT COUNT(*) FROM emote_logs
                         JOIN users on emote_logs.user_id = users.user_id
                         WHERE users.discord_id = ",
                     )
@@ -396,6 +399,7 @@ impl Db {
                 query_builder
                     .push(
                         "
+                        SELECT COUNT(*) FROM emote_log_tags
                         JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id
                         JOIN guilds on emote_logs.guild_id = guilds.guild_id
                         WHERE guilds.discord_id = ",
@@ -408,6 +412,7 @@ impl Db {
                 query_builder
                     .push(
                         "
+                        SELECT COUNT(*) FROM emote_log_tags
                         JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id
                         JOIN guilds on emote_logs.guild_id = guilds.guild_id
                         JOIN users on emote_logs.user_id = users.user_id
@@ -423,6 +428,7 @@ impl Db {
                 query_builder
                     .push(
                         "
+                        SELECT COUNT(*) FROM emote_log_tags
                         JOIN emote_logs ON emote_log_tags.emote_log_id = emote_logs.emote_log_id
                         JOIN users on emote_logs.user_id = users.user_id
                         WHERE users.discord_id = ",
