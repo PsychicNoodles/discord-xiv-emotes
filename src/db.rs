@@ -25,24 +25,76 @@ impl Db {
         discord_id: &UserId,
         language: DbLanguage,
         gender: DbGender,
-    ) -> Result<(), HandlerError> {
+    ) -> Result<i64, HandlerError> {
         debug!("upserting user");
-        let now = time::OffsetDateTime::now_utc();
-        sqlx::query!(
+        if let Some(rec) = sqlx::query!(
+            "
+            SELECT user_id FROM users WHERE discord_id = $1
+            ",
+            discord_id.to_db_string()
+        )
+        .fetch_optional(&self.0)
+        .await?
+        {
+            Ok(rec.user_id)
+        } else {
+            self.upsert_user_with_is_set(
+                discord_id,
+                language,
+                gender,
+                true,
+                time::OffsetDateTime::now_utc(),
+            )
+            .await
+        }
+    }
+
+    async fn upsert_user_not_set(
+        &self,
+        discord_id: &UserId,
+        language: DbLanguage,
+        gender: DbGender,
+        now: time::OffsetDateTime,
+    ) -> Result<i64, HandlerError> {
+        if let Some(rec) = sqlx::query!(
+            "
+            SELECT user_id FROM users WHERE discord_id = $1
+            ",
+            discord_id.to_db_string()
+        )
+        .fetch_optional(&self.0)
+        .await?
+        {
+            Ok(rec.user_id)
+        } else {
+            self.upsert_user_with_is_set(discord_id, language, gender, false, now)
+                .await
+        }
+    }
+
+    pub async fn upsert_user_with_is_set(
+        &self,
+        discord_id: &UserId,
+        language: DbLanguage,
+        gender: DbGender,
+        is_set_flg: bool,
+        now: time::OffsetDateTime,
+    ) -> Result<i64, HandlerError> {
+        Ok(sqlx::query!(
             "
             INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)
-            VALUES ($1, $2, $3, true, $4, $4)
-            ON CONFLICT (discord_id) DO UPDATE
-            SET discord_id = $1, language = $2, gender = $3, is_set_flg = true, update_tm = $4
+            VALUES ($1, $2, $3, $4, $5, $5)
+            RETURNING user_id
             ",
             discord_id.to_db_string(),
             language as i32,
             gender as i32,
+            is_set_flg,
             now
         )
-        .execute(&self.0)
-        .await?;
-        Ok(())
+        .fetch_one(&self.0)
+        .await?
+        .user_id)
     }
 
     #[instrument]
@@ -76,25 +128,80 @@ impl Db {
         language: DbLanguage,
         gender: DbGender,
         prefix: String,
-    ) -> Result<(), HandlerError> {
+    ) -> Result<i64, HandlerError> {
         debug!("upserting guild");
-        let now = time::OffsetDateTime::now_utc();
-        sqlx::query!(
+        if let Some(rec) = sqlx::query!(
+            "
+            SELECT guild_id FROM guilds WHERE discord_id = $1
+            ",
+            discord_id.to_db_string()
+        )
+        .fetch_optional(&self.0)
+        .await?
+        {
+            Ok(rec.guild_id)
+        } else {
+            self.upsert_guild_with_is_set(
+                discord_id,
+                language,
+                gender,
+                prefix,
+                true,
+                time::OffsetDateTime::now_utc(),
+            )
+            .await
+        }
+    }
+
+    async fn upsert_guild_not_set(
+        &self,
+        discord_id: &GuildId,
+        language: DbLanguage,
+        gender: DbGender,
+        prefix: String,
+        now: time::OffsetDateTime,
+    ) -> Result<i64, HandlerError> {
+        if let Some(rec) = sqlx::query!(
+            "
+            SELECT guild_id FROM guilds WHERE discord_id = $1
+            ",
+            discord_id.to_db_string()
+        )
+        .fetch_optional(&self.0)
+        .await?
+        {
+            Ok(rec.guild_id)
+        } else {
+            self.upsert_guild_with_is_set(discord_id, language, gender, prefix, false, now)
+                .await
+        }
+    }
+
+    pub async fn upsert_guild_with_is_set(
+        &self,
+        discord_id: &GuildId,
+        language: DbLanguage,
+        gender: DbGender,
+        prefix: String,
+        is_set_flg: bool,
+        now: time::OffsetDateTime,
+    ) -> Result<i64, HandlerError> {
+        Ok(sqlx::query!(
             "
             INSERT INTO guilds (discord_id, language, gender, prefix, is_set_flg, insert_tm, update_tm)
-            VALUES ($1, $2, $3, $4, true, $5, $5)
-            ON CONFLICT (discord_id) DO UPDATE
-            SET discord_id = $1, language = $2, gender = $3, prefix = $4, is_set_flg = true, update_tm = $5
+            VALUES ($1, $2, $3, $4, $5, $6, $6)
+            RETURNING guild_id
             ",
             discord_id.to_db_string(),
             language as i32,
             gender as i32,
             prefix,
+            is_set_flg,
             now
         )
-        .execute(&self.0)
-        .await?;
-        Ok(())
+        .fetch_one(&self.0)
+        .await?
+        .guild_id)
     }
 
     #[instrument]
@@ -120,30 +227,6 @@ impl Db {
         .await?;
         debug!("guild lookup: {:?}", res.as_ref());
         Ok(res)
-    }
-
-    async fn upsert_user_not_set(
-        &self,
-        user_discord_id: &UserId,
-        user_language: DbLanguage,
-        user_gender: DbGender,
-        now: time::OffsetDateTime,
-    ) -> Result<i64, HandlerError> {
-        Ok(sqlx::query!(
-            "
-            INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)
-            VALUES ($1, $2, $3, false, $4, $4)
-            ON CONFLICT (discord_id) DO UPDATE SET update_tm = $4
-            RETURNING user_id
-            ",
-            user_discord_id.to_db_string(),
-            user_language as i32,
-            user_gender as i32,
-            now
-        )
-        .fetch_one(&self.0)
-        .await?
-        .user_id)
     }
 
     /// target_discord_ids is used in a WHERE IN, so any duplicates are ignored
@@ -173,22 +256,10 @@ impl Db {
                 prefix: guild_prefix,
                 ..
             } = DbGuild::default();
-            Some(sqlx::query!(
-                "
-                INSERT INTO guilds (discord_id, language, gender, prefix, is_set_flg, insert_tm, update_tm)
-                VALUES ($1, $2, $3, $4, false, $5, $5)
-                ON CONFLICT (discord_id) DO UPDATE SET update_tm = $5
-                RETURNING guild_id
-                ",
-                gdi.to_db_string(),
-                guild_language as i32,
-                guild_gender as i32,
-                guild_prefix,
-                now
+            Some(
+                self.upsert_guild_not_set(gdi, guild_language, guild_gender, guild_prefix, now)
+                    .await?,
             )
-            .fetch_one(&self.0)
-            .await?
-            .guild_id)
         } else {
             None
         };
@@ -208,7 +279,7 @@ impl Db {
         .await?
         .emote_log_id;
 
-        // push_values below needs an iterator, so collect the upsert results first
+        // push_values below needs an iterator, not a stream, so collect the upsert results first
         let user_ids: Vec<_> = stream::iter(target_discord_ids)
             .then(|id| async {
                 self.upsert_user_not_set(id, user_language, user_gender, now)
@@ -217,16 +288,14 @@ impl Db {
             .try_collect()
             .await?;
 
-        let mut query_builder =
-            QueryBuilder::new("INSERT INTO emote_log_tags (emote_log_id, user_id) ");
-        let mut is_empty = true;
-        query_builder.push_values(user_ids.into_iter(), |mut builder, id| {
-            is_empty = false;
-            trace!("pushing mention {:?}", id.to_string());
-            builder.push_bind(emote_log_id).push_bind(id);
-        });
-        if !is_empty {
-            debug!("saving non-zero amount of mentions");
+        if !user_ids.is_empty() {
+            let mut query_builder =
+                QueryBuilder::new("INSERT INTO emote_log_tags (emote_log_id, user_id) ");
+            query_builder.push_values(user_ids.into_iter(), |mut builder, id| {
+                trace!("pushing mention {:?}", id.to_string());
+                builder.push_bind(emote_log_id).push_bind(id);
+            });
+            debug!("saving mentions");
             query_builder.build().execute(&self.0).await?;
         }
 
