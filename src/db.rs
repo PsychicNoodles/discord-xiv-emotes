@@ -265,7 +265,7 @@ impl Db {
 
         let emote_log_id = sqlx::query!(
             "
-            INSERT INTO emote_logs (user_id, guild_id, emote_id, sent_at, insert_tm, update_tm)
+            INSERT INTO emote_logs (user_id, guild_id, emote_xiv_id, sent_at, insert_tm, update_tm)
             VALUES ($1, $2, $3, $4, $4, $4)
             RETURNING emote_log_id
             ",
@@ -334,16 +334,16 @@ impl Db {
         if let Some(em) = em_opt {
             let emote_id = sqlx::query!(
                 "
-                SELECT emote_id FROM emotes WHERE xiv_id = $1
+                SELECT xiv_id FROM emotes WHERE xiv_id = $1
                 ",
                 em.id as i32
             )
             .fetch_one(&self.0)
             .await?
-            .emote_id;
+            .xiv_id;
             trace!(emote_id, "adding emote cond");
             query_builder
-                .push(" AND emote_logs.emote_id = ")
+                .push(" AND emote_logs.emote_xiv_id = ")
                 .push_bind(emote_id);
         }
         Ok(())
