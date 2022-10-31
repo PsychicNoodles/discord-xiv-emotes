@@ -11,8 +11,8 @@ use tracing_subscriber::EnvFilter;
 async fn main() {
     dotenv().ok();
     tracing_subscriber::fmt()
+        .pretty()
         .with_env_filter(EnvFilter::from_default_env())
-        .event_format(tracing_subscriber::fmt::format().with_source_location(true))
         .init();
     let token = env::var("DISCORD_TOKEN").expect("expected DISCORD_TOKEN env var");
     let db_url = env::var("DATABASE_URL").expect("expected DATABASE_URL env var");
