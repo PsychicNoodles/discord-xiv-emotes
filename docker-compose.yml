@@ -7,7 +7,7 @@ services:
         EXEC: ${EXEC:-discord-xiv-emotes}
     environment:
       DATABASE_URL: postgres://postgres:password@dxe-db/postgres
-      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?Discord token must be defined in environment or .env file}
     depends_on:
       - "dxe-db"
     command: ["./wait-for-it.sh", "dxe-db:5432", "--", "./discord-xiv-emotes"]

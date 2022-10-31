@@ -12,6 +12,10 @@ The necessary environment for the bot to work is:
 
 The recommended way of running it by producing an executable, either through `cargo build --release`
 or by downloading a release build from GitHub, and then running `docker compose up`. In this case,
-you must still specify `DATABASE_URL`, either with a `.env` file or by manually defining it, and if
+you must still specify `DISCORD_TOKEN`, either with a `.env` file or by manually defining it, and if
 the executable is anywhere other than `./discord-xiv-emotes` you can specify its location with the
-`EXEC` environment variable.
+`EXEC` environment variable. Alternatively, you can modify the Dockerfile and place your `.env` file
+at `/dxe/.env`.
+
+Note that when updating the executable you will need to delete the existing image, most likely named
+`discord-xiv-emotes-dxe`.
