@@ -540,7 +540,7 @@ impl AppCmd for EmoteSelectCmd {
         cmd
     }
 
-    #[instrument(skip(handler, context))]
+    #[instrument(skip(cmd, handler, context))]
     async fn handle(
         cmd: &ApplicationCommandInteraction,
         handler: &crate::Handler,
