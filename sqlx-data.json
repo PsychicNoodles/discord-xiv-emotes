@@ -20,23 +20,7 @@
     },
     "query": "\n                SELECT emote_id FROM emotes WHERE xiv_id = $1\n                "
   },
-  "40e0b7685ef7c91b516677b7626fa2b27747f3e1ec951aa6d06403d95d4a4941": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Bpchar",
-          "Int4",
-          "Int4",
-          "Varchar",
-          "Timestamptz"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO guilds (discord_id, language, gender, prefix, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, $4, true, $5, $5)\n            ON CONFLICT (discord_id) DO UPDATE\n            SET discord_id = $1, language = $2, gender = $3, prefix = $4, is_set_flg = true, update_tm = $5\n            "
-  },
-  "4de9b006bf05dab548b58fcdb0c6ef457b61997a0ee6f04851a884ec2c93255a": {
+  "7273769badcf9c486ba9bd49ce7a435d019b9194fed89e8d36a2f02c12ef5e8d": {
     "describe": {
       "columns": [
         {
@@ -54,13 +38,34 @@
           "Int4",
           "Int4",
           "Varchar",
+          "Bool",
           "Timestamptz"
         ]
       }
     },
-    "query": "\n                INSERT INTO guilds (discord_id, language, gender, prefix, is_set_flg, insert_tm, update_tm)\n                VALUES ($1, $2, $3, $4, false, $5, $5)\n                ON CONFLICT (discord_id) DO UPDATE SET update_tm = $5\n                RETURNING guild_id\n                "
+    "query": "\n            INSERT INTO guilds (discord_id, language, gender, prefix, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, $4, $5, $6, $6)\n            RETURNING guild_id\n            "
   },
-  "5ba1db9a9111f4e0584486627b306cfbc7869a7a72af8efeffd05caf9ec2a4d9": {
+  "98f5a88e9c8ad9369901a86fcb4bb1ff29c504748e4a615cd997701911d374f5": {
+    "describe": {
+      "columns": [
+        {
+          "name": "guild_id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Bpchar"
+        ]
+      }
+    },
+    "query": "\n            SELECT guild_id FROM guilds WHERE discord_id = $1\n            "
+  },
+  "9faad4428696c605bd039a386414595d16e320cca3f516c19ff77fbd1e5a620b": {
     "describe": {
       "columns": [
         {
@@ -77,26 +82,12 @@
           "Bpchar",
           "Int4",
           "Int4",
+          "Bool",
           "Timestamptz"
         ]
       }
     },
-    "query": "\n            INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, false, $4, $4)\n            ON CONFLICT (discord_id) DO UPDATE SET update_tm = $4\n            RETURNING user_id\n            "
-  },
-  "6c679452c9c0fb5e7f2b71fd2cbf5484f60371f7f4fad8fe4bbf432a3ac08415": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Bpchar",
-          "Int4",
-          "Int4",
-          "Timestamptz"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, true, $4, $4)\n            ON CONFLICT (discord_id) DO UPDATE\n            SET discord_id = $1, language = $2, gender = $3, is_set_flg = true, update_tm = $4\n            "
+    "query": "\n            INSERT INTO users (discord_id, language, gender, is_set_flg, insert_tm, update_tm)\n            VALUES ($1, $2, $3, $4, $5, $5)\n            RETURNING user_id\n            "
   },
   "b786d51bc35fb8dd99da1c2baa36ef8729e7f7d0581579af503b897b923c8891": {
     "describe": {
@@ -111,6 +102,26 @@
       }
     },
     "query": "\n                INSERT INTO emotes (xiv_id, command, insert_tm, update_tm)\n                VALUES ($1, $2, $3, $3)\n                ON CONFLICT (xiv_id) DO UPDATE SET update_tm = $3\n                "
+  },
+  "c04b173faecb5bef580b5577dcc9f157fa328f76609ade5ddaae68220cae197d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "user_id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Bpchar"
+        ]
+      }
+    },
+    "query": "\n            SELECT user_id FROM users WHERE discord_id = $1\n            "
   },
   "c1460d1af5bd0236b8a0324c7b1a19f2b209312c5f5efcb0cf577f19560344c0": {
     "describe": {
