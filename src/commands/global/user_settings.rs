@@ -104,17 +104,17 @@ async fn handle_interaction(
             let value = if let Ok(v) = value.parse() {
                 v
             } else {
-                error!("unexpected gender selected (not numeric): {}", value);
+                error!(value, "unexpected gender selected (not numeric)");
                 return Err(HandlerError::UnexpectedData);
             };
             let gender = match DbGender::from_repr(value) {
                 Some(g) => g,
                 None => {
-                    error!("unexpected gender selected (invalid number): {}", value);
+                    error!(value, "unexpected gender selected (invalid number)");
                     return Err(HandlerError::UnexpectedData);
                 }
             };
-            debug!("gender selected: {:?}", gender);
+            debug!(?gender, "gender selected");
             user.gender = gender;
         }
         Ok(Ids::LanguageSelect) => {
@@ -122,17 +122,17 @@ async fn handle_interaction(
             let value = if let Ok(v) = value.parse() {
                 v
             } else {
-                error!("unexpected language selected (not numeric): {}", value);
+                error!(value, "unexpected language selected (not numeric)");
                 return Err(HandlerError::UnexpectedData);
             };
             let lang = match DbLanguage::from_repr(value) {
                 Some(g) => g,
                 None => {
-                    error!("unexpected language selected (invalid number): {}", value);
+                    error!(value, "unexpected language selected (invalid number)");
                     return Err(HandlerError::UnexpectedData);
                 }
             };
-            debug!("language selected: {:?}", lang);
+            debug!(?lang, "language selected");
             user.language = lang;
         }
         Ok(Ids::Submit) => {
@@ -147,8 +147,8 @@ async fn handle_interaction(
                 .await?;
             return Ok(Some(mem::take(user)));
         }
-        Err(e) => {
-            error!("unexpected component id: {}", e);
+        Err(err) => {
+            error!(?err, "unexpected component id");
         }
     }
 
@@ -254,8 +254,8 @@ impl AppCmd for UserSettingsCmd {
     where
         Self: Sized,
     {
-        trace!("finding existing user");
         let user = message_db_data.determine_user_settings().await?;
+        info!(?user, "user settings command");
 
         cmd.create_interaction_response(context, |res| {
             create_response(

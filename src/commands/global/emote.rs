@@ -6,7 +6,7 @@ use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::{
         command::{CommandOptionType, CommandType},
-        interaction::application_command::ApplicationCommandInteraction,
+        interaction::application_command::{ApplicationCommandInteraction, CommandDataOptionValue},
     },
     prelude::Context,
 };
@@ -100,23 +100,31 @@ impl AppCmd for EmoteCmd {
             .data
             .options
             .get(0)
-            .and_then(|o| o.value.as_ref())
-            .and_then(|v| v.as_str())
+            .and_then(|o| o.resolved.as_ref())
+            .and_then(|v| {
+                if let CommandDataOptionValue::String(s) = v {
+                    Some(s)
+                } else {
+                    None
+                }
+            })
             .ok_or(HandlerError::UnexpectedData)?;
 
         let user_settings = message_db_data.determine_user_settings().await?;
         let guild = message_db_data.guild().await?.unwrap_or_default();
+
+        info!(emote, "emote command");
 
         let emote = match emote.get(0..0) {
             None => {
                 error!("emote is empty");
                 return Err(HandlerError::UnrecognizedEmote("(empty)".to_string()));
             }
-            Some("/") => Cow::Borrowed(*emote),
+            Some("/") => Cow::Borrowed(emote.as_str()),
             Some(s) if s == guild.prefix => Cow::Borrowed(emote.trim_start_matches(&guild.prefix)),
             Some(_) => Cow::Owned(["/", emote].concat()),
         };
-        trace!("checking if emote exists: {:?}", emote);
+        trace!(?emote, "checking if emote exists");
         if !handler.log_message_repo.contains_emote(&emote) {
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
@@ -138,10 +146,10 @@ impl AppCmd for EmoteCmd {
         let body = handler
             .build_emote_message(messages, message_db_data, &cmd.user, target.as_deref())
             .await?;
+        debug!(body, resolved = ?cmd.data.resolved, "processed emote");
         cmd.channel_id
             .send_message(context, |m| m.content(body))
             .await?;
-        debug!("resolved: {:?}", cmd.data.resolved);
         handler
             .log_emote(
                 &cmd.user.id,

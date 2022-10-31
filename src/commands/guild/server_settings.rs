@@ -41,6 +41,14 @@ pub const PREFIX_INPUT_MODAL_CONTENT: LocalizedString = LocalizedString {
     en: "Input a command prefix (up to 5 characters)",
     ja: "コマンドプレフィックスを入力してください（5文字まで）",
 };
+pub const PREFIX_INPUT_MODAL_INPUT: LocalizedString = LocalizedString {
+    en: "Command prefix",
+    ja: "コマンドプレフィックス",
+};
+pub const PREFIX_INPUT_MODAL_TITLE: LocalizedString = LocalizedString {
+    en: "Server-wide command prefix",
+    ja: "サーバーのコマンドプレフィックス",
+};
 pub const SAVE_BTN: LocalizedString = LocalizedString {
     en: "Save",
     ja: "保存",
@@ -123,17 +131,17 @@ async fn handle_interaction(
             let value = if let Ok(v) = value.parse() {
                 v
             } else {
-                error!("unexpected gender selected (not numeric): {}", value);
+                error!(value, "unexpected gender selected (not numeric)");
                 return Err(HandlerError::UnexpectedData);
             };
             let gender = match DbGender::from_repr(value) {
                 Some(g) => g,
                 None => {
-                    error!("unexpected gender selected (invalid number): {}", value);
+                    error!(value, "unexpected gender selected (invalid number)");
                     return Err(HandlerError::UnexpectedData);
                 }
             };
-            debug!("gender selected: {:?}", gender);
+            debug!(?gender, "gender selected");
             guild.gender = gender;
         }
         Ok(Ids::LanguageSelect) => {
@@ -141,68 +149,74 @@ async fn handle_interaction(
             let value = if let Ok(v) = value.parse() {
                 v
             } else {
-                error!("unexpected language selected (not numeric): {}", value);
+                error!(value, "unexpected language selected (not numeric)");
                 return Err(HandlerError::UnexpectedData);
             };
             let lang = match DbLanguage::from_repr(value) {
                 Some(g) => g,
                 None => {
-                    error!("unexpected language selected (invalid number): {}", value);
+                    error!(value, "unexpected language selected (invalid number)");
                     return Err(HandlerError::UnexpectedData);
                 }
             };
-            debug!("language selected: {:?}", lang);
+            debug!(?lang, "language selected");
             guild.language = lang;
         }
         Ok(Ids::PrefixInputBtn) => {
             debug!("prefix input");
-            interaction
-                .create_interaction_response(context, |res| {
-                    res.kind(InteractionResponseType::Modal)
-                        .interaction_response_data(|d| {
-                            d.content(PREFIX_INPUT_MODAL_CONTENT.for_user(user))
-                                .components(|c| {
-                                    c.create_action_row(|row| {
-                                        row.create_input_text(|inp| {
-                                            inp.custom_id(PREFIX_INPUT_MODAL)
-                                                .style(InputTextStyle::Short)
-                                                .label("Target name")
-                                                .max_length(5)
+            let span = debug_span!("prefix_input_modal_interaction");
+            async move {
+                interaction
+                    .create_interaction_response(context, |res| {
+                        res.kind(InteractionResponseType::Modal)
+                            .interaction_response_data(|d| {
+                                d.content(PREFIX_INPUT_MODAL_CONTENT.for_user(user))
+                                    .components(|c| {
+                                        c.create_action_row(|row| {
+                                            row.create_input_text(|inp| {
+                                                inp.custom_id(PREFIX_INPUT_MODAL)
+                                                    .style(InputTextStyle::Short)
+                                                    .label(PREFIX_INPUT_MODAL_INPUT.for_user(user))
+                                                    .max_length(5)
+                                            })
                                         })
                                     })
-                                })
-                                .title("Custom target input")
-                                .custom_id(PREFIX_INPUT_MODAL_BTN)
-                        })
-                })
-                .await?;
-
-            if let Some(modal_interaction) = msg
-                .await_modal_interaction(context)
-                .timeout(INTERACTION_TIMEOUT)
-                .await
-            {
-                match &modal_interaction.data.components[0].components[0] {
-                    ActionRowComponent::InputText(cmp) => {
-                        trace!("setting prefix to: {}", cmp.value);
-                        guild.prefix = cmp.value.clone();
-                        modal_interaction
-                            .create_interaction_response(context, |res| {
-                                create_response(
-                                    res,
-                                    InteractionResponseType::UpdateMessage,
-                                    user,
-                                    guild,
-                                )
+                                    .title(PREFIX_INPUT_MODAL_TITLE.for_user(user))
+                                    .custom_id(PREFIX_INPUT_MODAL_BTN)
                             })
-                            .await?;
-                    }
-                    cmp => {
-                        error!("modal component was not an input text: {:?}", cmp);
-                        return Err(HandlerError::UnexpectedData);
+                    })
+                    .await?;
+
+                if let Some(modal_interaction) = msg
+                    .await_modal_interaction(context)
+                    .timeout(INTERACTION_TIMEOUT)
+                    .await
+                {
+                    match &modal_interaction.data.components[0].components[0] {
+                        ActionRowComponent::InputText(cmp) => {
+                            trace!(prefix = cmp.value, "setting prefix");
+                            guild.prefix = cmp.value.clone();
+                            modal_interaction
+                                .create_interaction_response(context, |res| {
+                                    create_response(
+                                        res,
+                                        InteractionResponseType::UpdateMessage,
+                                        user,
+                                        guild,
+                                    )
+                                })
+                                .await?;
+                        }
+                        cmp => {
+                            error!(?cmp, "modal component was not an input text");
+                            return Err(HandlerError::UnexpectedData);
+                        }
                     }
                 }
+                Ok(())
             }
+            .instrument(span)
+            .await?;
             // don't send typical interaction response
             return Ok(None);
         }
@@ -218,8 +232,8 @@ async fn handle_interaction(
                 .await?;
             return Ok(Some(mem::take(guild)));
         }
-        Err(e) => {
-            error!("unexpected component id: {}", e);
+        Err(err) => {
+            error!(?err, "unexpected component id");
         }
     }
 
@@ -335,10 +349,10 @@ impl AppCmd for ServerSettingsCmd {
     where
         Self: Sized,
     {
-        trace!("finding existing guild");
         let user = message_db_data.determine_user_settings().await?;
         let guild = message_db_data.guild().await?.unwrap_or_default();
         let guild_id = cmd.guild_id.ok_or(HandlerError::NotGuild)?;
+        info!(?guild_id, "server settings command");
 
         cmd.create_interaction_response(context, |res| {
             create_response(

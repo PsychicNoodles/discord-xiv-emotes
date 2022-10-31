@@ -58,7 +58,6 @@ pub fn split_by_max_message_len(
     res.iter_mut().enumerate().for_each(|(i, m)| {
         m.insert_str(0, &format!("{} ({}/{}): ", prefix.as_ref(), i + 1, count));
     });
-    trace!("res: {:?}", res);
     res
 }
 
@@ -86,6 +85,7 @@ impl AppCmd for ListEmotesCmd {
     where
         Self: Sized,
     {
+        info!("list emotes command");
         let user = message_db_data.determine_user_settings().await?;
         let bodies = split_by_max_message_len(
             LIST_MSG_PREFIX.for_user(&user),

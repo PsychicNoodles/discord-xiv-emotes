@@ -53,6 +53,7 @@ pub struct MessageDbData<'a> {
 }
 
 impl<'a> MessageDbData<'a> {
+    #[instrument(ret)]
     pub fn new(
         db: &Db,
         user_discord_id: UserId,
@@ -67,7 +68,6 @@ impl<'a> MessageDbData<'a> {
         }
     }
 
-    #[instrument]
     pub async fn user(&self) -> Result<Option<Cow<DbUser>>, HandlerError> {
         Ok(self
             .user_cell
@@ -77,7 +77,6 @@ impl<'a> MessageDbData<'a> {
             .map(Cow::Borrowed))
     }
 
-    #[instrument]
     pub async fn guild(&self) -> Result<Option<Cow<DbGuild>>, HandlerError> {
         if let Some(discord_id) = &self.guild_discord_id {
             Ok(self
@@ -91,7 +90,6 @@ impl<'a> MessageDbData<'a> {
         }
     }
 
-    #[instrument]
     pub async fn determine_user_settings(&self) -> Result<Cow<DbUser>, HandlerError> {
         if let Some(user) = self.user().await? {
             return Ok(user);
@@ -161,15 +159,13 @@ impl HandlerError {
 impl EventHandler for Handler {
     #[instrument(skip(self, context))]
     async fn message(&self, context: Context, msg: Message) {
-        #[instrument(skip(context))]
         async fn handle_error(err: HandlerError, msg: Message, context: &Context) {
-            error!("error during message processing: {:?}", err);
+            error!(?err, "error during message processing");
             if err.should_followup() {
                 if let Err(e) = msg.reply(context, err.to_string()).await {
                     error!(
-                        "could not send follow-up message ({}): {:?}",
-                        err.to_string(),
-                        e
+                        err = ?e,
+                        "could not send follow-up message",
                     );
                 }
             }
@@ -186,19 +182,19 @@ impl EventHandler for Handler {
         let guild = match message_db_data.guild().await {
             Ok(guild) => guild.unwrap_or_default(),
             Err(HandlerError::NotGuild) => Cow::Owned(DbGuild::default()),
-            Err(e) => {
-                error!("error communicating with db: {:?}", e);
-                handle_error(e, msg, &context).await;
+            Err(err) => {
+                error!(?err, "error communicating with db");
+                handle_error(err, msg, &context).await;
                 return;
             }
         };
-        debug!("guild prefix: {}", guild.prefix);
+        debug!(guild.prefix, "using guild prefix");
         if msg.content.starts_with(&guild.prefix) {
             let mut mparts: Vec<_> = msg.content.split_whitespace().collect();
             if let Some(first) = mparts.get_mut(0) {
                 *first = first.strip_prefix(&guild.prefix).unwrap_or(first);
             }
-            debug!("message parts: {:?}", mparts);
+            debug!(?mparts);
             match self
                 .process_input(&context, &mparts, &msg, &message_db_data)
                 .await
@@ -231,7 +227,7 @@ impl EventHandler for Handler {
             };
 
             if let Err(err) = handle_res {
-                error!("error during interaction processing: {:?}", err);
+                error!(?err, "error during interaction processing");
                 if err.should_followup() {
                     if let Err(e) = cmd
                         .create_followup_message(&context, |msg| {
@@ -240,9 +236,8 @@ impl EventHandler for Handler {
                         .await
                     {
                         error!(
-                            "could not send follow-up message ({}): {:?}",
-                            err.to_string(),
-                            e
+                            err = ?e,
+                            "could not send follow-up message",
                         );
                     }
                 }
@@ -264,7 +259,7 @@ impl EventHandler for Handler {
                 let cmd_enum =
                     T::from_str(&cmd.name).map_err(|_| HandlerError::CommandRegisterUnknown)?;
                 if let Some(prev) = cmd_map.insert(cmd.id, cmd_enum) {
-                    warn!("overwrote previous command with same id: {:?}", prev);
+                    warn!(?prev, "overwrote previous command with same id");
                 }
             }
             context.data.write().await.insert::<T>(cmd_map);
@@ -274,8 +269,7 @@ impl EventHandler for Handler {
         info!("{} is connected", ready.user.name);
 
         info!(
-            "guilds: {:?}",
-            ready.guilds.iter().map(|ug| ug.id).collect::<Vec<_>>()
+            guilds = ?ready.guilds.iter().map(|ug| ug.id).collect::<Vec<_>>()
         );
         // global commands
 
@@ -286,7 +280,7 @@ impl EventHandler for Handler {
         .await
         {
             Err(err) => {
-                error!("error registering global application commands: {:?}", err);
+                error!(?err, "error registering global application commands");
                 context.shard.shutdown_clean();
                 return;
             }
@@ -294,13 +288,13 @@ impl EventHandler for Handler {
         };
 
         info!(
-            "registered global commands: {:?}",
-            global_commands.iter().map(|c| &c.name).collect::<Vec<_>>()
+            commands = ?global_commands.iter().map(|c| &c.name).collect::<Vec<_>>(),
+            "registered global commands"
         );
         if let Err(err) =
             save_command_ids::<GlobalCommands>(&context, global_commands.into_iter()).await
         {
-            error!("error saving global application command data: {:?}", err);
+            error!(?err, "error saving global application command data");
             context.shard.shutdown_clean();
             return;
         }
@@ -318,7 +312,7 @@ impl EventHandler for Handler {
             .await
             {
                 Err(err) => {
-                    error!("error registering guild application commands: {:?}", err);
+                    error!(?err, "error registering guild application commands");
                     context.shard.shutdown_clean();
                     return;
                 }
@@ -327,8 +321,8 @@ impl EventHandler for Handler {
 
             if let Some(first) = guild_commands.first() {
                 info!(
-                    "registered guild commands: {:?}",
-                    first.iter().map(|c| &c.name).collect::<Vec<_>>()
+                    commands = ?first.iter().map(|c| &c.name).collect::<Vec<_>>(),
+                    "registered guild commands"
                 );
             } else {
                 error!("guilds list is not empty, but no guild commands were registered");
@@ -342,7 +336,7 @@ impl EventHandler for Handler {
                 })
                 .await
             {
-                error!("error saving guild application command data: {:?}", err);
+                error!(?err, "error saving guild application command data");
                 context.shard.shutdown_clean();
                 return;
             }
@@ -397,10 +391,7 @@ impl Handler {
             .as_ref()
             .map(|t| Character::new_from_string(t.to_string(), Gender::Male, true, false))
             .unwrap_or(UNTARGETED_TARGET);
-        debug!(
-            "building emote {} message for origin {:?} target {:?}",
-            messages.name, origin_char, target_char
-        );
+        debug!(messages.name, ?origin_char, ?target_char, "building emote");
         let answers = LogMessageAnswers::new(origin_char, target_char)?;
 
         Ok(condition_texts
@@ -431,7 +422,7 @@ impl Handler {
             .build())
     }
 
-    #[instrument(skip(self, context))]
+    #[instrument(skip(self, context, msg))]
     async fn process_input<'a>(
         &self,
         context: &Context,
@@ -447,11 +438,10 @@ impl Handler {
             Some(mention.join(" "))
         };
 
-        trace!("parsed command and mention: {:?} {:?}", emote, mention);
+        debug!(emote, ?mention, "parsed message");
 
         match (&emote, mention) {
             (emote, mention_opt) if self.log_message_repo.contains_emote(emote) => {
-                debug!("emote, mention: {}", mention_opt.is_some());
                 let messages = self.log_message_repo.messages(emote)?;
                 let body = self
                     .build_emote_message(
@@ -461,7 +451,7 @@ impl Handler {
                         mention_opt.as_ref().map(AsRef::as_ref),
                     )
                     .await?;
-                debug!("emote result: {}", body);
+                debug!(body, "emote result");
                 msg.reply(context, body).await?;
                 self.log_emote(
                     &msg.author.id,
@@ -472,11 +462,14 @@ impl Handler {
                 .await?;
                 Ok(())
             }
-            (_, _) => Err(HandlerError::UnrecognizedEmote(original_emote.to_string())),
+            (_, _) => {
+                warn!("could not find matching emote");
+                Err(HandlerError::UnrecognizedEmote(original_emote.to_string()))
+            }
         }
     }
 
-    #[instrument(skip(self, context))]
+    #[instrument(skip_all)]
     async fn try_handle_commands<'a, T>(
         &self,
         context: &Context,
@@ -489,7 +482,7 @@ impl Handler {
         let read = context.data.read().await;
         if let Some(cmd_map) = read.get::<T>() {
             if let Some(app_cmd) = cmd_map.get(&cmd.data.id) {
-                trace!("handing off to app command handler: {:?}", app_cmd);
+                trace!(?app_cmd, "handing off to app command handler");
                 Some(app_cmd.handle(cmd, self, context, message_db_data).await)
             } else {
                 None
@@ -512,7 +505,7 @@ impl Handler {
                 .insert_emote_log(user_discord_id, guild_discord_id, target_discord_ids, id)
                 .await?;
         } else {
-            error!("could not convert emote id to i32: {}", messages.id);
+            error!(messages.id, "could not convert emote id to i32");
         };
         Ok(())
     }
@@ -527,8 +520,8 @@ pub async fn setup_client(token: String, pool: PgPool) -> Client {
         .await
         .expect("couldn't load log message data from xivapi");
     info!(
-        "repo initialized with emotes: {:?}",
-        log_message_repo.emote_list_by_id().collect::<Vec<_>>()
+        emotes = ?log_message_repo.emote_list_by_id().collect::<Vec<_>>(),
+        "repo initialized with emotes"
     );
     let migrator = sqlx::migrate!("./migrations");
     migrator.run(&pool).await.expect("couldn't run migrations");

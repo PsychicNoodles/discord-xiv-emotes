@@ -103,7 +103,7 @@ impl AppCmd for GlobalStatsCmd {
             user_id_opt,
         )
         .ok_or(HandlerError::UnexpectedData)?;
-        debug!("global stat kind: {:?}", kind);
+        info!(?kind, "global stat command");
 
         let count = handler.db.fetch_emote_log_count(&kind).await?;
         let message = kind.to_message(count, &user);

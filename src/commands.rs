@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash, str::FromStr};
+use std::{collections::HashMap, fmt::Debug, hash::Hash, str::FromStr};
 
 use async_trait::async_trait;
 use serenity::{
@@ -31,7 +31,7 @@ trait AppCmd {
 
 #[async_trait]
 pub trait CommandsEnum:
-    FromStr + TypeMapKey<Value = HashMap<CommandId, Self>> + std::fmt::Debug + Copy + Eq + Hash
+    FromStr + TypeMapKey<Value = HashMap<CommandId, Self>> + Debug + Copy + Eq + Hash
 {
     async fn handle(
         self,

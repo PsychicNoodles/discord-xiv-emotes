@@ -140,9 +140,10 @@ impl AppCmd for GuildStatsCmd {
             user_id_opt,
         )
         .ok_or(HandlerError::UnexpectedData)?;
-        debug!("guild stat kind: {:?}", kind);
+        info!(?kind, "guild stat command");
 
         let count = handler.db.fetch_emote_log_count(&kind).await?;
+        debug!(count, ?kind);
         let message = kind.to_message(count, &user);
         cmd.create_interaction_response(context, |res| {
             res.interaction_response_data(|d| d.content(message))

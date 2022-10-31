@@ -66,7 +66,9 @@ pub enum EmoteLogQuery {
 }
 
 impl EmoteLogQuery {
+    #[instrument(level = "trace")]
     pub fn to_message(&self, count: i64, user: &DbUser) -> String {
+        trace!("making stats command message");
         match user.language {
             DbLanguage::En => self.to_en_message(count),
             DbLanguage::Ja => self.to_ja_message(count),
@@ -213,13 +215,14 @@ impl EmoteLogQuery {
         }
     }
 
-    #[instrument]
+    #[instrument(skip(log_message_repo))]
     pub fn from_command_data(
         log_message_repo: &LogMessageRepository,
         options: &[CommandDataOption],
         guild_id_opt: Option<GuildId>,
         user_id_opt: Option<UserId>,
     ) -> Option<EmoteLogQuery> {
+        debug!("determining stat command query type");
         fn get_emote_opt(
             log_message_repo: &LogMessageRepository,
             opt: &CommandDataOption,
@@ -228,12 +231,12 @@ impl EmoteLogQuery {
             let mut emote = match opt.options.get(ind).and_then(|o| o.resolved.as_ref()) {
                 Some(CommandDataOptionValue::String(s)) => Some(Cow::Borrowed(s)),
                 Some(v) => {
-                    warn!("resolved to non-string value, ignoring: {:?}", v);
+                    warn!(?v, "resolved to non-string value, ignoring");
                     None
                 }
                 None => None,
             };
-            trace!("resolved emote: {:?}", emote);
+            trace!(?emote, "resolved emote");
             match emote.as_mut() {
                 Some(e) => {
                     if !e.starts_with("/") {
@@ -246,7 +249,7 @@ impl EmoteLogQuery {
         }
 
         if let Some(top) = &options.get(0) {
-            debug!("top: {:?}", top);
+            debug!(?top);
             match (&top.name, guild_id_opt, user_id_opt) {
                 // guild
                 (_s, Some(guild_id), _) if GUILD_SUB_NAME.any_eq(_s) => Some(EmoteLogQuery::Guild(
@@ -268,6 +271,7 @@ impl EmoteLogQuery {
                 // everything shifted over, so re-match on guild_id_opt and user_id_opt
                 (_s, _, _) if RECEIVED_GROUP_NAME.any_eq(_s) => {
                     if let Some(received) = top.options.get(0) {
+                        debug!(?received);
                         match (&received.name, guild_id_opt, user_id_opt) {
                             // guild
                             (_s, Some(guild_id), _) if RECEIVED_GUILD_SUB_NAME.any_eq(_s) => {

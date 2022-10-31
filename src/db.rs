@@ -2,6 +2,7 @@ pub mod models;
 pub mod util;
 
 use std::borrow::Borrow;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use futures::{stream, StreamExt, TryStreamExt};
@@ -19,7 +20,7 @@ use self::util::DiscordIdExt;
 pub struct Db(pub PgPool);
 
 impl Db {
-    #[instrument]
+    #[instrument(level = "debug")]
     pub async fn upsert_user(
         &self,
         discord_id: &UserId,
@@ -72,7 +73,7 @@ impl Db {
         }
     }
 
-    pub async fn upsert_user_with_is_set(
+    async fn upsert_user_with_is_set(
         &self,
         discord_id: &UserId,
         language: DbLanguage,
@@ -97,7 +98,7 @@ impl Db {
         .user_id)
     }
 
-    #[instrument]
+    #[instrument(level = "debug", ret)]
     pub async fn find_user(&self, discord_id: &UserId) -> Result<Option<DbUser>, HandlerError> {
         debug!("finding user");
         let res = sqlx::query_as!(
@@ -117,11 +118,10 @@ impl Db {
         )
         .fetch_optional(&self.0)
         .await?;
-        debug!("user lookup: {:?}", res);
         Ok(res)
     }
 
-    #[instrument]
+    #[instrument(level = "debug")]
     pub async fn upsert_guild(
         &self,
         discord_id: &GuildId,
@@ -177,7 +177,7 @@ impl Db {
         }
     }
 
-    pub async fn upsert_guild_with_is_set(
+    async fn upsert_guild_with_is_set(
         &self,
         discord_id: &GuildId,
         language: DbLanguage,
@@ -204,7 +204,7 @@ impl Db {
         .guild_id)
     }
 
-    #[instrument]
+    #[instrument(level = "debug", ret)]
     pub async fn find_guild(&self, discord_id: &GuildId) -> Result<Option<DbGuild>, HandlerError> {
         debug!("finding guild");
         let res = sqlx::query_as!(
@@ -225,17 +225,16 @@ impl Db {
         )
         .fetch_optional(&self.0)
         .await?;
-        debug!("guild lookup: {:?}", res.as_ref());
         Ok(res)
     }
 
     /// target_discord_ids is used in a WHERE IN, so any duplicates are ignored
-    #[instrument]
+    #[instrument(level = "debug")]
     pub async fn insert_emote_log(
         &self,
         user_discord_id: &UserId,
         guild_discord_id: Option<&GuildId>,
-        target_discord_ids: impl Iterator<Item = &UserId> + std::fmt::Debug,
+        target_discord_ids: impl Iterator<Item = &UserId> + Debug,
         emote_id: i32,
     ) -> Result<(), HandlerError> {
         debug!("inserting emote log");
@@ -292,7 +291,7 @@ impl Db {
             let mut query_builder =
                 QueryBuilder::new("INSERT INTO emote_log_tags (emote_log_id, user_id) ");
             query_builder.push_values(user_ids.into_iter(), |mut builder, id| {
-                trace!("pushing mention {:?}", id.to_string());
+                trace!(mention = id, "pushing mention");
                 builder.push_bind(emote_log_id).push_bind(id);
             });
             debug!("saving mentions");
@@ -342,6 +341,7 @@ impl Db {
             .fetch_one(&self.0)
             .await?
             .emote_id;
+            trace!(emote_id, "adding emote cond");
             query_builder
                 .push(" AND emote_logs.emote_id = ")
                 .push_bind(emote_id);
@@ -349,9 +349,10 @@ impl Db {
         Ok(())
     }
 
+    #[instrument(level = "debug")]
     pub async fn fetch_emote_log_count(
         &self,
-        kind: impl Borrow<EmoteLogQuery>,
+        kind: impl Borrow<EmoteLogQuery> + Debug,
     ) -> Result<i64, HandlerError> {
         let mut query_builder = QueryBuilder::new("SELECT COUNT(*) FROM emote_logs ");
         match kind.borrow() {
@@ -432,9 +433,9 @@ impl Db {
             }
         }
 
-        let res: i64 = query_builder.build().fetch_one(&self.0).await?.get(0);
-        debug!("count for {:?}: {}", kind.borrow(), res);
+        let count = query_builder.build().fetch_one(&self.0).await?.get(0);
+        debug!(?kind, count, "found count");
 
-        Ok(res)
+        Ok(count)
     }
 }
