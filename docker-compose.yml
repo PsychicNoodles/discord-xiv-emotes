@@ -5,13 +5,20 @@ services:
       context: .
       args:
         EXEC: ${EXEC:-discord-xiv-emotes}
+    restart: always
     environment:
       DATABASE_URL: postgres://postgres:password@dxe-db/postgres
       DISCORD_TOKEN: ${DISCORD_TOKEN:?Discord token must be defined in environment or .env file}
+      RUST_LOG: $RUST_LOG
     depends_on:
       - "dxe-db"
     command: ["./wait-for-it.sh", "dxe-db:5432", "--", "./discord-xiv-emotes"]
   dxe-db:
     image: postgres:latest
+    restart: always
     environment:
       POSTGRES_PASSWORD: password
+    volumes:
+      - dxe-db-data:/var/lib/postgresql/data
+volumes:
+  dxe-db-data:
