@@ -611,9 +611,8 @@ impl AppCmd for EmoteSelectCmd {
                 cmd.guild_id.as_ref(),
                 res.target
                     .as_ref()
-                    .map(Target::user_id)
-                    .flatten()
-                    .map(|id| *id)
+                    .and_then(Target::user_id)
+                    .cloned()
                     .iter(),
                 messages,
             )

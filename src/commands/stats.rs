@@ -242,13 +242,10 @@ impl EmoteLogQuery {
                 None => None,
             };
             trace!(?emote, "resolved emote");
-            match emote.as_mut() {
-                Some(e) => {
-                    if !e.starts_with("/") {
-                        *e = Cow::Owned(["/", &e].concat())
-                    }
+            if let Some(e) = emote.as_mut() {
+                if !e.starts_with('/') {
+                    *e = Cow::Owned(["/", e].concat())
                 }
-                _ => {}
             };
             emote.and_then(|em| log_message_repo.messages(&em).ok().cloned())
         }

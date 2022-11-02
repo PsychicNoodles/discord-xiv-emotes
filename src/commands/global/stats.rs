@@ -116,6 +116,6 @@ impl AppCmd for GlobalStatsCmd {
     }
 
     fn name() -> LocalizedString {
-        return NAME;
+        NAME
     }
 }

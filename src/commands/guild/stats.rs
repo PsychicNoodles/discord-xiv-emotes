@@ -154,6 +154,6 @@ impl AppCmd for GuildStatsCmd {
     }
 
     fn name() -> LocalizedString {
-        return NAME;
+        NAME
     }
 }
