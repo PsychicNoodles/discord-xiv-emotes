@@ -53,6 +53,18 @@ impl Handler {
                         id: Some(id),
                     } = result
                     {
+                        if [
+                            &targeted.text_en,
+                            &untargeted.text_en,
+                            &targeted.text_ja,
+                            &untargeted.text_ja,
+                        ]
+                        .into_iter()
+                        .any(String::is_empty)
+                        {
+                            trace!(name, id, "skipping due to no messages");
+                            return Ok(map);
+                        }
                         let en_targeted =
                             extract_condition_texts(&targeted.text_en).map_err(|e| {
                                 error!(
