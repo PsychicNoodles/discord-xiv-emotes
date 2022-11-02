@@ -101,7 +101,7 @@ jobs:
       - name: Install rust target
         run: rustup target add $TARGET
       - name: Run build
-        run: cargo build --release --verbose --config opt-level=3 --config lto=thin --target $TARGET
+        run: cargo build --release --verbose --config opt-level=3 --config lto="thin" --target $TARGET
       - name: List target
         run: find ./target
       - name: Compress
