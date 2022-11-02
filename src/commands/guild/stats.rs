@@ -134,7 +134,7 @@ impl AppCmd for GuildStatsCmd {
         let guild_id = cmd.guild_id.ok_or(HandlerError::NotGuild)?;
         let user_id_opt = cmd.data.resolved.users.keys().next().cloned();
         let kind = EmoteLogQuery::from_command_data(
-            &handler.log_message_repo,
+            &handler.emotes,
             &cmd.data.options,
             Some(guild_id),
             user_id_opt,

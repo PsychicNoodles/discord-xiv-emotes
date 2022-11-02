@@ -26,8 +26,9 @@ use tracing::*;
 use crate::{
     commands::AppCmd,
     db::models::DbUser,
+    handler::emotes::UNTARGETED_TARGET,
     util::{CreateApplicationCommandExt, LocalizedString},
-    HandlerError, MessageDbData, INTERACTION_TIMEOUT, UNTARGETED_TARGET,
+    HandlerError, MessageDbData, INTERACTION_TIMEOUT,
 };
 
 pub const CONTENT: LocalizedString = LocalizedString {
@@ -568,7 +569,7 @@ impl AppCmd for EmoteSelectCmd {
 
         info!(?members, "emote select command");
 
-        let emote_list: Vec<_> = handler.log_message_repo.emote_list_by_id().collect();
+        let emote_list: Vec<_> = handler.emote_list_by_id().collect();
         cmd.create_interaction_response(context, |res| {
             create_response(
                 res,
@@ -592,10 +593,12 @@ impl AppCmd for EmoteSelectCmd {
         )
         .await?;
 
-        let messages = handler.log_message_repo.messages(&res.emote)?;
+        let emote_data = handler
+            .get_emote_data(&res.emote)
+            .ok_or(HandlerError::UnrecognizedEmote(res.emote.clone()))?;
         let body = handler
             .build_emote_message(
-                messages,
+                emote_data,
                 message_db_data,
                 &cmd.user,
                 res.target.as_ref().map(|t| t.to_string()).as_deref(),
@@ -614,7 +617,7 @@ impl AppCmd for EmoteSelectCmd {
                     .and_then(Target::user_id)
                     .cloned()
                     .iter(),
-                messages,
+                emote_data,
             )
             .await?;
 

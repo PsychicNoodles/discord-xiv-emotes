@@ -125,7 +125,7 @@ impl AppCmd for EmoteCmd {
             Some(_) => Cow::Owned(["/", emote].concat()),
         };
         trace!(?emote, "checking if emote exists");
-        if !handler.log_message_repo.contains_emote(&emote) {
+        if !handler.contains_emote(&emote) {
             cmd.create_interaction_response(context, |res| {
                 res.interaction_response_data(|data| {
                     data.ephemeral(true)
@@ -136,7 +136,9 @@ impl AppCmd for EmoteCmd {
             return Ok(());
         }
 
-        let messages = handler.log_message_repo.messages(&emote)?;
+        let emote_data = handler
+            .get_emote_data(&emote)
+            .ok_or(HandlerError::UnrecognizedEmote(emote.to_string()))?;
         let target = cmd
             .data
             .options
@@ -144,7 +146,7 @@ impl AppCmd for EmoteCmd {
             .and_then(|opt| opt.value.clone())
             .and_then(|value| value.as_str().map(ToString::to_string));
         let body = handler
-            .build_emote_message(messages, message_db_data, &cmd.user, target.as_deref())
+            .build_emote_message(emote_data, message_db_data, &cmd.user, target.as_deref())
             .await?;
         debug!(body, resolved = ?cmd.data.resolved, "processed emote");
         cmd.channel_id
@@ -155,7 +157,7 @@ impl AppCmd for EmoteCmd {
                 &cmd.user.id,
                 cmd.guild_id.as_ref(),
                 cmd.data.resolved.users.keys(),
-                messages,
+                emote_data,
             )
             .await?;
 

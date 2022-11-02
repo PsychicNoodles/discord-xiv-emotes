@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+pub mod handler;
 pub mod util;
 
 use commands::CommandsEnum;
@@ -9,9 +10,9 @@ use db::{
     Db,
 };
 use futures::{future::try_join_all, stream, StreamExt, TryStreamExt};
+use handler::{Handler, HandlerError};
 use sqlx::PgPool;
-use std::{borrow::Cow, collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
-use thiserror::Error;
+use std::{borrow::Cow, collections::HashMap, fmt::Debug, time::Duration};
 use tokio::sync::OnceCell;
 use tracing::*;
 
@@ -20,28 +21,13 @@ use serenity::{
     model::prelude::{
         command::Command,
         interaction::{application_command::ApplicationCommandInteraction, Interaction},
-        GuildId, Mention, Message, Ready, UserId,
+        GuildId, Message, Ready, UserId,
     },
-    prelude::Mentionable,
     prelude::{Context, EventHandler, GatewayIntents},
-    utils::MessageBuilder,
     Client,
-};
-use xiv_emote_parser::{
-    log_message::{
-        condition::{Character, DynamicText, Gender, LogMessageAnswersError},
-        parser::{extract_condition_texts, Text},
-        EmoteTextError, LogMessageAnswers,
-    },
-    repository::{EmoteData, LogMessageRepository, LogMessageRepositoryError},
 };
 
 use crate::commands::{global::GlobalCommands, guild::GuildCommands};
-
-pub struct Handler {
-    log_message_repo: LogMessageRepository,
-    db: Db,
-}
 
 #[derive(Debug, Clone)]
 pub struct MessageDbData<'a> {
@@ -104,56 +90,7 @@ impl<'a> MessageDbData<'a> {
     }
 }
 
-// untargeted messages shouldn't reference target character at all, but just in case
-pub const UNTARGETED_TARGET: Character =
-    Character::new("Godbert Manderville", Gender::Male, false, false);
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(60);
-
-#[derive(Debug, Error)]
-pub enum HandlerError {
-    #[error("Unrecognized emote ({0})")]
-    UnrecognizedEmote(String),
-    #[error("Unrecognized command ({0})")]
-    UnrecognizedCommand(String),
-    #[error("Command was empty")]
-    EmptyCommand,
-    #[error("Internal error, could not retrieve emote data")]
-    EmoteData(#[from] LogMessageRepositoryError),
-    #[error("Internal error, could not build response")]
-    Answers(#[from] LogMessageAnswersError),
-    #[error("Internal error, could not build response")]
-    Extract(#[from] EmoteTextError),
-    #[error("Internal error, could not build response")]
-    TargetNone,
-    #[error("Internal error, could not build response")]
-    Db(#[from] sqlx::Error),
-    #[error("Failed to send message")]
-    Send(#[from] serenity::Error),
-    #[error("Command can only be used in a server")]
-    NotGuild,
-    #[error("Timed out or had too many inputs")]
-    TimeoutOrOverLimit,
-    #[error("Couldn't find user")]
-    UserNotFound,
-    #[error("Unexpected data received from server")]
-    UnexpectedData,
-    #[error("Maximum number of commands reached")]
-    ApplicationCommandCap,
-    #[error("Internal error, could not build response")]
-    EmoteLogCountNoParams,
-    #[error("Internal error, could not build response")]
-    CountNone,
-    #[error("Received command info for unknown command")]
-    CommandRegisterUnknown,
-    #[error("Internal error, could not build response")]
-    TypeMapNotFound,
-}
-
-impl HandlerError {
-    fn should_followup(&self) -> bool {
-        !matches!(self, HandlerError::TimeoutOrOverLimit)
-    }
-}
 
 #[async_trait]
 impl EventHandler for Handler {
@@ -345,83 +282,6 @@ impl EventHandler for Handler {
 }
 
 impl Handler {
-    #[instrument(skip(self))]
-    pub async fn build_emote_message<'a, T: Mentionable + Debug>(
-        &self,
-        messages: &Arc<EmoteData>,
-        message_db_data: &MessageDbData<'a>,
-        author_mentionable: &T,
-        target: Option<&str>,
-    ) -> Result<String, HandlerError> {
-        enum BuilderAction<'a> {
-            Mention(Mention),
-            Text(Cow<'a, str>),
-        }
-
-        impl<'a> BuilderAction<'a> {
-            fn do_action(self, msg_builder: &mut MessageBuilder) {
-                match self {
-                    BuilderAction::Mention(m) => msg_builder.mention(&m),
-                    BuilderAction::Text(s) => msg_builder.push(s),
-                };
-            }
-        }
-
-        let author_mention = author_mentionable.mention();
-
-        let user = message_db_data.determine_user_settings().await?;
-        let DbUser {
-            language, gender, ..
-        } = user.as_ref();
-
-        let localized_messages = language.with_emote_data(messages);
-        let condition_texts = extract_condition_texts(if target.is_some() {
-            &localized_messages.targeted
-        } else {
-            &localized_messages.untargeted
-        })?;
-
-        let origin_char = Character::new_from_string(
-            author_mention.mention().to_string(),
-            gender.into(),
-            true,
-            false,
-        );
-        let target_char = target
-            .as_ref()
-            .map(|t| Character::new_from_string(t.to_string(), Gender::Male, true, false))
-            .unwrap_or(UNTARGETED_TARGET);
-        debug!(messages.name, ?origin_char, ?target_char, "building emote");
-        let answers = LogMessageAnswers::new(origin_char, target_char)?;
-
-        Ok(condition_texts
-            .into_map_texts(&answers, move |text| match text {
-                Text::Dynamic(d) => match d {
-                    DynamicText::NpcOriginName
-                    | DynamicText::PlayerOriginNameEn
-                    | DynamicText::PlayerOriginNameJp => Ok(BuilderAction::Mention(author_mention)),
-                    DynamicText::NpcTargetName
-                    | DynamicText::PlayerTargetNameEn
-                    | DynamicText::PlayerTargetNameJp => match &target {
-                        Some(t) => Ok(BuilderAction::Text(Cow::Borrowed(t))),
-                        None => Err(HandlerError::TargetNone),
-                    },
-                },
-                Text::Static(s) => Ok(BuilderAction::Text(Cow::Owned(s))),
-            })
-            .fold(Ok(MessageBuilder::new()), |builder_res, action_res| match (
-                builder_res,
-                action_res,
-            ) {
-                (Err(e), _) | (_, Err(e)) => Err(e),
-                (Ok(mut builder), Ok(action)) => {
-                    action.do_action(&mut builder);
-                    Ok(builder)
-                }
-            })?
-            .build())
-    }
-
     #[instrument(skip(self, context, msg))]
     async fn process_input<'a>(
         &self,
@@ -440,12 +300,13 @@ impl Handler {
 
         debug!(emote, ?mention, "parsed message");
 
-        match (&emote, mention) {
-            (emote, mention_opt) if self.log_message_repo.contains_emote(emote) => {
-                let messages = self.log_message_repo.messages(emote)?;
+        let emote = self.get_emote_data(&emote);
+
+        match (emote, mention) {
+            (Some(emote), mention_opt) => {
                 let body = self
                     .build_emote_message(
-                        messages,
+                        emote,
                         message_db_data,
                         &msg.author,
                         mention_opt.as_ref().map(AsRef::as_ref),
@@ -457,7 +318,7 @@ impl Handler {
                     &msg.author.id,
                     msg.guild_id.as_ref(),
                     msg.mentions.iter().map(|u| &u.id),
-                    messages,
+                    emote,
                 )
                 .await?;
                 Ok(())
@@ -491,24 +352,6 @@ impl Handler {
             Some(Err(HandlerError::TypeMapNotFound))
         }
     }
-
-    #[instrument(skip(self))]
-    async fn log_emote(
-        &self,
-        user_discord_id: &UserId,
-        guild_discord_id: Option<&GuildId>,
-        target_discord_ids: impl Iterator<Item = &UserId> + Debug,
-        messages: &Arc<EmoteData>,
-    ) -> Result<(), HandlerError> {
-        if let Ok(id) = messages.id.try_into() {
-            self.db
-                .insert_emote_log(user_discord_id, guild_discord_id, target_discord_ids, id)
-                .await?;
-        } else {
-            error!(messages.id, "could not convert emote id to i32");
-        };
-        Ok(())
-    }
 }
 
 pub async fn setup_client(token: String, pool: PgPool) -> Client {
@@ -516,32 +359,25 @@ pub async fn setup_client(token: String, pool: PgPool) -> Client {
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT
         | GatewayIntents::GUILD_MEMBERS;
-    let log_message_repo = LogMessageRepository::from_xivapi(None)
-        .await
-        .expect("couldn't load log message data from xivapi");
-    info!(
-        emotes = ?log_message_repo.emote_list_by_id().collect::<Vec<_>>(),
-        "repo initialized with emotes"
-    );
     let migrator = sqlx::migrate!("./migrations");
     migrator.run(&pool).await.expect("couldn't run migrations");
     info!("executed {} migrations", migrator.migrations.len());
 
     let db = Db(pool);
-    db.upsert_emotes(
-        log_message_repo
-            .all_messages()
-            .into_iter()
-            .map(|data| (data.id.try_into().unwrap(), data.name.clone())),
-    )
-    .await
-    .expect("couldn't insert emote data into db");
+
+    let handler = Handler::new(db, None).expect("couldn't load log message data from xivapi");
+    info!(
+        emotes = ?handler.emote_list_by_id().collect::<Vec<_>>(),
+        "repo initialized with emotes"
+    );
+
+    handler
+        .upsert_emotes()
+        .await
+        .expect("couldn't insert emote data into db");
 
     Client::builder(&token, intents)
-        .event_handler(Handler {
-            log_message_repo,
-            db,
-        })
+        .event_handler(handler)
         .await
         .expect("error creating client")
 }

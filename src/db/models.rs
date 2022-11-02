@@ -1,10 +1,9 @@
-use xiv_emote_parser::{
-    log_message::condition::Gender,
-    repository::{EmoteData, LogMessagePair},
-};
+use xiv_emote_parser::log_message::condition::Gender;
 
 use strum_macros::{EnumIter, FromRepr};
 use time::OffsetDateTime;
+
+use crate::handler::{ConditionTextPair, EmoteData};
 
 #[derive(sqlx::Type, Default, Debug, Clone, Copy, PartialEq, Eq, EnumIter, FromRepr)]
 #[repr(i32)]
@@ -36,7 +35,7 @@ impl DbLanguage {
         }
     }
 
-    pub fn with_emote_data<'a>(&'a self, emote_data: &'a EmoteData) -> &LogMessagePair {
+    pub fn with_emote_data<'a>(&'a self, emote_data: &'a EmoteData) -> &ConditionTextPair {
         match self {
             DbLanguage::En => &emote_data.en,
             DbLanguage::Ja => &emote_data.ja,

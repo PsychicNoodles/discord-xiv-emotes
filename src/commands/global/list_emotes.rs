@@ -89,7 +89,7 @@ impl AppCmd for ListEmotesCmd {
         let user = message_db_data.determine_user_settings().await?;
         let bodies = split_by_max_message_len(
             LIST_MSG_PREFIX.for_user(&user),
-            handler.log_message_repo.emote_list_by_id().cloned(),
+            handler.emote_list_by_id().cloned(),
         );
         debug!("emotes response is {} messages long", bodies.len());
 

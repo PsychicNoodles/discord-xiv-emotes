@@ -9,8 +9,8 @@ use futures::{stream, StreamExt, TryStreamExt};
 use serenity::model::prelude::{GuildId, UserId};
 use sqlx::{PgPool, QueryBuilder, Row};
 use tracing::*;
-use xiv_emote_parser::repository::EmoteData;
 
+use crate::handler::EmoteData;
 use crate::{commands::stats::EmoteLogQuery, HandlerError};
 
 use self::models::{DbGender, DbGuild, DbLanguage, DbUser};
