@@ -1,10 +1,10 @@
 {
   "db": "PostgreSQL",
-  "06b630aeb3b61c63e5f10caec457a966d66b3553715b3fe157b186aa45958b49": {
+  "1b3e586ba57e63c8168f07e6c80c7706b4440ac9ad80c9fd848576e3d9521a84": {
     "describe": {
       "columns": [
         {
-          "name": "emote_id",
+          "name": "emote_log_id",
           "ordinal": 0,
           "type_info": "Int8"
         }
@@ -14,11 +14,14 @@
       ],
       "parameters": {
         "Left": [
-          "Int4"
+          "Int8",
+          "Int8",
+          "Int4",
+          "Timestamptz"
         ]
       }
     },
-    "query": "\n                SELECT emote_id FROM emotes WHERE xiv_id = $1\n                "
+    "query": "\n            INSERT INTO emote_logs (user_id, guild_id, emote_xiv_id, sent_at, insert_tm, update_tm)\n            VALUES ($1, $2, $3, $4, $4, $4)\n            RETURNING emote_log_id\n            "
   },
   "7273769badcf9c486ba9bd49ce7a435d019b9194fed89e8d36a2f02c12ef5e8d": {
     "describe": {
@@ -173,13 +176,13 @@
     },
     "query": "\n            SELECT\n                discord_id,\n                language as \"language: DbLanguage\",\n                gender as \"gender: DbGender\",\n                is_set_flg,\n                insert_tm,\n                update_tm\n            FROM users\n            WHERE discord_id = $1\n            "
   },
-  "e096abb1fde3ff881eb63aa09810d4f1227b8e84af913e9c2467ae5ed5d47517": {
+  "d4d0ef0182e63f8b32e6de18a04582f115218eb466496313370895b259588c13": {
     "describe": {
       "columns": [
         {
-          "name": "emote_log_id",
+          "name": "xiv_id",
           "ordinal": 0,
-          "type_info": "Int8"
+          "type_info": "Int4"
         }
       ],
       "nullable": [
@@ -187,14 +190,11 @@
       ],
       "parameters": {
         "Left": [
-          "Int8",
-          "Int8",
-          "Int4",
-          "Timestamptz"
+          "Int4"
         ]
       }
     },
-    "query": "\n            INSERT INTO emote_logs (user_id, guild_id, emote_id, sent_at, insert_tm, update_tm)\n            VALUES ($1, $2, $3, $4, $4, $4)\n            RETURNING emote_log_id\n            "
+    "query": "\n                SELECT xiv_id FROM emotes WHERE xiv_id = $1\n                "
   },
   "ebc7d6da0f5558decc278a96d6ad6f11bfc095fa9b2213f1978257a7ac298bf1": {
     "describe": {
