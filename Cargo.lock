@@ -2002,9 +2002,9 @@ dependencies = [
 
 [[package]]
 name = "xiv-emote-parser"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "979c8755491a7de7741d39dd9d84b0d6725c75f1e806dbb654eb261ea122d015"
+checksum = "12d8f22343f5fea190f28dae4bb2b2e3e46c56a224ca6602baf5a291981170ff"
 dependencies = [
  "pest",
  "pest_consume",

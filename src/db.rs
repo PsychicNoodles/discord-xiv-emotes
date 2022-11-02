@@ -419,7 +419,7 @@ impl Db {
                         WHERE guilds.discord_id = ",
                     )
                     .push_bind(g.to_db_string())
-                    .push(" AND users.user_id = ")
+                    .push(" AND users.discord_id = ")
                     .push_bind(u.to_db_string());
                 self.try_add_emote_condition(&mut query_builder, em_opt)
                     .await?;

@@ -263,7 +263,7 @@ impl EmoteLogQuery {
                 // global
                 (_s, _, Some(user_id)) if USER_SUB_NAME.any_eq(_s) => Some(EmoteLogQuery::User((
                     user_id,
-                    get_emote_opt(emotes, top, 0),
+                    get_emote_opt(emotes, top, 1),
                 ))),
                 // received subcommand group
                 // everything shifted over, so re-match on guild_id_opt and user_id_opt
@@ -291,7 +291,7 @@ impl EmoteLogQuery {
                             (_s, _, Some(user_id)) if RECEIVED_USER_SUB_NAME.any_eq(_s) => {
                                 Some(EmoteLogQuery::ReceivedUser((
                                     user_id,
-                                    get_emote_opt(emotes, received, 0),
+                                    get_emote_opt(emotes, received, 1),
                                 )))
                             }
                             _ => {
