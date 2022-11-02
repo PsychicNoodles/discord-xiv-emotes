@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod emotes;
 
 use std::{collections::HashMap, sync::Arc};
@@ -124,6 +125,8 @@ pub enum HandlerError {
     CommandRegisterUnknown,
     #[error("Internal error, could not build response")]
     TypeMapNotFound,
+    #[error("Could not set up application commands")]
+    CommandSetup,
 }
 
 impl HandlerError {

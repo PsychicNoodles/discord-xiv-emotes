@@ -1,6 +1,6 @@
 use serenity::{
-    model::prelude::{GuildId, Mention, UserId},
-    prelude::Mentionable,
+    model::prelude::{GuildId, Mention, Message, UserId},
+    prelude::{Context, Mentionable},
     utils::MessageBuilder,
 };
 use std::{borrow::Cow, fmt::Debug, sync::Arc};
@@ -43,6 +43,54 @@ impl Handler {
 
     pub fn get_emote_data(&self, emote: &str) -> Option<&Arc<EmoteData>> {
         self.emotes.get(emote)
+    }
+
+    #[instrument(skip(self, context, msg))]
+    pub async fn process_message_input<'a>(
+        &self,
+        context: &Context,
+        mparts: &[&str],
+        msg: &Message,
+        message_db_data: &MessageDbData<'a>,
+    ) -> Result<(), HandlerError> {
+        let (original_emote, mention) = mparts.split_first().ok_or(HandlerError::EmptyCommand)?;
+        let emote = ["/", original_emote].concat();
+        let mention = if mention.is_empty() {
+            None
+        } else {
+            Some(mention.join(" "))
+        };
+
+        debug!(emote, ?mention, "parsed message");
+
+        let emote = self.get_emote_data(&emote);
+
+        match (emote, mention) {
+            (Some(emote), mention_opt) => {
+                let body = self
+                    .build_emote_message(
+                        emote,
+                        message_db_data,
+                        &msg.author,
+                        mention_opt.as_ref().map(AsRef::as_ref),
+                    )
+                    .await?;
+                debug!(body, "emote result");
+                msg.reply(context, body).await?;
+                self.log_emote(
+                    &msg.author.id,
+                    msg.guild_id.as_ref(),
+                    msg.mentions.iter().map(|u| &u.id),
+                    emote,
+                )
+                .await?;
+                Ok(())
+            }
+            (_, _) => {
+                warn!("could not find matching emote");
+                Err(HandlerError::UnrecognizedEmote(original_emote.to_string()))
+            }
+        }
     }
 
     #[instrument(skip(self))]

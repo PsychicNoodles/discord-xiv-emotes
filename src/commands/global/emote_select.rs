@@ -595,7 +595,7 @@ impl AppCmd for EmoteSelectCmd {
 
         let emote_data = handler
             .get_emote_data(&res.emote)
-            .ok_or(HandlerError::UnrecognizedEmote(res.emote.clone()))?;
+            .ok_or_else(|| HandlerError::UnrecognizedEmote(res.emote.clone()))?;
         let body = handler
             .build_emote_message(
                 emote_data,

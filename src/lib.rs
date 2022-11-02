@@ -9,17 +9,16 @@ use db::{
     util::DiscordIdExt,
     Db,
 };
-use futures::{future::try_join_all, stream, StreamExt, TryStreamExt};
+use futures::try_join;
 use handler::{Handler, HandlerError};
 use sqlx::PgPool;
-use std::{borrow::Cow, collections::HashMap, fmt::Debug, time::Duration};
+use std::{borrow::Cow, fmt::Debug, time::Duration};
 use tokio::sync::OnceCell;
 use tracing::*;
 
 use serenity::{
     async_trait,
     model::prelude::{
-        command::Command,
         interaction::{application_command::ApplicationCommandInteraction, Interaction},
         GuildId, Message, Ready, UserId,
     },
@@ -133,7 +132,7 @@ impl EventHandler for Handler {
             }
             debug!(?mparts);
             match self
-                .process_input(&context, &mparts, &msg, &message_db_data)
+                .process_message_input(&context, &mparts, &msg, &message_db_data)
                 .await
             {
                 Ok(v) => v,
@@ -184,152 +183,24 @@ impl EventHandler for Handler {
 
     #[instrument(skip(self, context))]
     async fn ready(&self, context: Context, ready: Ready) {
-        async fn save_command_ids<T>(
-            context: &Context,
-            commands: impl Iterator<Item = Command>,
-        ) -> Result<(), HandlerError>
-        where
-            T: CommandsEnum,
-        {
-            let mut cmd_map = HashMap::new();
-            for cmd in commands {
-                let cmd_enum =
-                    T::from_str(&cmd.name).map_err(|_| HandlerError::CommandRegisterUnknown)?;
-                if let Some(prev) = cmd_map.insert(cmd.id, cmd_enum) {
-                    warn!(?prev, "overwrote previous command with same id");
-                }
-            }
-            context.data.write().await.insert::<T>(cmd_map);
-            Ok(())
-        }
-
         info!("{} is connected", ready.user.name);
 
         info!(
             guilds = ?ready.guilds.iter().map(|ug| ug.id).collect::<Vec<_>>()
         );
-        // global commands
 
-        let global_commands = match Command::set_global_application_commands(&context, |create| {
-            create.set_application_commands(GlobalCommands::application_commands().collect());
-            create
-        })
-        .await
-        {
-            Err(err) => {
-                error!(?err, "error registering global application commands");
-                context.shard.shutdown_clean();
-                return;
-            }
-            Ok(commands) => commands,
-        };
-
-        info!(
-            commands = ?global_commands.iter().map(|c| &c.name).collect::<Vec<_>>(),
-            "registered global commands"
-        );
-        if let Err(err) =
-            save_command_ids::<GlobalCommands>(&context, global_commands.into_iter()).await
-        {
-            error!(?err, "error saving global application command data");
+        if let Err(err) = try_join!(
+            self.setup_global_commands(&context),
+            self.setup_guild_commands(&context, ready),
+        ) {
+            error!(?err, "could not setup application commands, shutting down");
             context.shard.shutdown_clean();
             return;
-        }
-
-        // guild commands
-
-        if !ready.guilds.is_empty() {
-            let guild_commands = match try_join_all(ready.guilds.iter().map(|g| {
-                g.id.set_application_commands(&context, |create| {
-                    create
-                        .set_application_commands(GuildCommands::application_commands().collect());
-                    create
-                })
-            }))
-            .await
-            {
-                Err(err) => {
-                    error!(?err, "error registering guild application commands");
-                    context.shard.shutdown_clean();
-                    return;
-                }
-                Ok(commands) => commands,
-            };
-
-            if let Some(first) = guild_commands.first() {
-                info!(
-                    commands = ?first.iter().map(|c| &c.name).collect::<Vec<_>>(),
-                    "registered guild commands"
-                );
-            } else {
-                error!("guilds list is not empty, but no guild commands were registered");
-                context.shard.shutdown_clean();
-                return;
-            }
-            if let Err(err) = stream::iter(guild_commands.into_iter())
-                .map(Ok)
-                .try_for_each(|cmds| async {
-                    save_command_ids::<GuildCommands>(&context, cmds.into_iter()).await
-                })
-                .await
-            {
-                error!(?err, "error saving guild application command data");
-                context.shard.shutdown_clean();
-                return;
-            }
         }
     }
 }
 
 impl Handler {
-    #[instrument(skip(self, context, msg))]
-    async fn process_input<'a>(
-        &self,
-        context: &Context,
-        mparts: &[&str],
-        msg: &Message,
-        message_db_data: &MessageDbData<'a>,
-    ) -> Result<(), HandlerError> {
-        let (original_emote, mention) = mparts.split_first().ok_or(HandlerError::EmptyCommand)?;
-        let emote = ["/", original_emote].concat();
-        let mention = if mention.is_empty() {
-            None
-        } else {
-            Some(mention.join(" "))
-        };
-
-        debug!(emote, ?mention, "parsed message");
-
-        let emote = self.get_emote_data(&emote);
-
-        match (emote, mention) {
-            (Some(emote), mention_opt) => {
-                let body = self
-                    .build_emote_message(
-                        emote,
-                        message_db_data,
-                        &msg.author,
-                        mention_opt.as_ref().map(AsRef::as_ref),
-                    )
-                    .await?;
-                debug!(body, "emote result");
-                msg.reply(context, body).await?;
-                self.log_emote(
-                    &msg.author.id,
-                    msg.guild_id.as_ref(),
-                    msg.mentions.iter().map(|u| &u.id),
-                    emote,
-                )
-                .await?;
-                Ok(())
-            }
-            (_, _) => {
-                warn!("could not find matching emote");
-                Err(HandlerError::UnrecognizedEmote(original_emote.to_string()))
-            }
-        }
-    }
-
     #[instrument(skip_all)]
     async fn try_handle_commands<'a, T>(
         &self,

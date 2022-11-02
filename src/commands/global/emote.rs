@@ -138,7 +138,7 @@ impl AppCmd for EmoteCmd {
 
         let emote_data = handler
             .get_emote_data(&emote)
-            .ok_or(HandlerError::UnrecognizedEmote(emote.to_string()))?;
+            .ok_or_else(|| HandlerError::UnrecognizedEmote(emote.to_string()))?;
         let target = cmd
             .data
             .options
