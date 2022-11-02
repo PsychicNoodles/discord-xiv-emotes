@@ -36,6 +36,7 @@ pub struct Handler {
 }
 
 impl Handler {
+    #[instrument(level = "trace")]
     pub fn new(db: Db, api_key: Option<String>) -> Result<Handler, HandlerError> {
         let query = LogMessageRepository::prep_xivapi_query(api_key);
         let emotes = LogMessageRepository::load_xivapi(&query)?
@@ -43,7 +44,7 @@ impl Handler {
             .try_fold(
                 HashMap::new(),
                 |mut map, result| -> Result<_, HandlerError> {
-                    debug!("processing from xivapi: {:?}", result);
+                    trace!("processing from xivapi: {:?}", result);
                     if let xivapi::EmoteData {
                         log_message_targeted: Some(targeted),
                         log_message_untargeted: Some(untargeted),
@@ -52,16 +53,48 @@ impl Handler {
                         id: Some(id),
                     } = result
                     {
+                        let en_targeted =
+                            extract_condition_texts(&targeted.text_en).map_err(|e| {
+                                error!(
+                                    name,
+                                    id, "could not extract condition texts for en->targeted"
+                                );
+                                e
+                            })?;
+                        let en_untargeted =
+                            extract_condition_texts(&untargeted.text_en).map_err(|e| {
+                                error!(
+                                    name,
+                                    id, "could not extract condition texts for en->untargeted"
+                                );
+                                e
+                            })?;
+                        let ja_targeted =
+                            extract_condition_texts(&targeted.text_ja).map_err(|e| {
+                                error!(
+                                    name,
+                                    id, "could not extract condition texts for ja->targeted"
+                                );
+                                e
+                            })?;
+                        let ja_untargeted =
+                            extract_condition_texts(&untargeted.text_ja).map_err(|e| {
+                                error!(
+                                    name,
+                                    id, "could not extract condition texts for ja->untargeted"
+                                );
+                                e
+                            })?;
                         let data = Arc::new(EmoteData {
                             id,
                             name,
                             en: ConditionTextPair {
-                                targeted: extract_condition_texts(&targeted.text_en)?,
-                                untargeted: extract_condition_texts(&untargeted.text_en)?,
+                                targeted: en_targeted,
+                                untargeted: en_untargeted,
                             },
                             ja: ConditionTextPair {
-                                targeted: extract_condition_texts(&targeted.text_ja)?,
-                                untargeted: extract_condition_texts(&untargeted.text_ja)?,
+                                targeted: ja_targeted,
+                                untargeted: ja_untargeted,
                             },
                         });
                         [
